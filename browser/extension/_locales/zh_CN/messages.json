@@ -1,0 +1,242 @@
+{
+  "alreadySaved": {
+    "message": "已存在于 stash ✓"
+  },
+  "asksTouchId": {
+    "message": "需要通过 Touch ID 验证"
+  },
+  "bankAccount": {
+    "message": "银行账户"
+  },
+  "bankAccounts": {
+    "message": "银行账户"
+  },
+  "blockedPage": {
+    "message": "stash 仅在网页上进行填充"
+  },
+  "cannotFillPage": {
+    "message": "stash 无法填充此页面"
+  },
+  "card": {
+    "message": "支付卡"
+  },
+  "cards": {
+    "message": "支付卡"
+  },
+  "connectBrowser": {
+    "message": "将 stash 连接到此浏览器"
+  },
+  "connectInstructions": {
+    "message": "在终端运行 $command$，然后重新打开 stash。",
+    "placeholders": {
+      "command": {
+        "content": "$1"
+      }
+    }
+  },
+  "connecting": {
+    "message": "正在连接…"
+  },
+  "extensionDescription": {
+    "message": "从 stash 保险库填充登录项、支付卡和银行账户。免费开源。"
+  },
+  "fillWithStash": {
+    "message": "使用 stash 填充"
+  },
+  "filled": {
+    "message": "已填充 ✓"
+  },
+  "filling": {
+    "message": "正在填充…"
+  },
+  "inlineDescription": {
+    "message": "用户名和密码字段中会出现 stash 图标。登录或注册后，stash 会询问是否保存登录项或更新密码。"
+  },
+  "inlineDisabled": {
+    "message": "关闭后，只有点击工具栏按钮，stash 才会在当前标签页工作。"
+  },
+  "inlineHeading": {
+    "message": "在登录字段中显示 stash，并询问是否保存登录项"
+  },
+  "inlinePermission": {
+    "message": "浏览器会提示 stash 可以“读取和更改所有网站上的数据”，因为此功能需要读取登录表单。stash 只会在匹配的网站上按你的操作填充，点击“保存”后才会存入保险库。"
+  },
+  "keyboardHint": {
+    "message": "↑↓ 选择 · ↩ 填充"
+  },
+  "languageTag": {
+    "message": "zh-CN"
+  },
+  "lock": {
+    "message": "锁定"
+  },
+  "locked": {
+    "message": "stash 已锁定"
+  },
+  "loginForUsername": {
+    "message": "用户名：$username$",
+    "placeholders": {
+      "username": {
+        "content": "$1"
+      }
+    }
+  },
+  "loginsFor": {
+    "message": "$host$ 的登录项",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "noFields": {
+    "message": "没有可填充的字段"
+  },
+  "noLogins": {
+    "message": "没有为 $host$ 保存登录项。请在 stash 中为登录项添加网站地址。",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "noPage": {
+    "message": "没有可填充的页面"
+  },
+  "noPaymentFields": {
+    "message": "stash 未在此页面找到可见的付款字段。"
+  },
+  "noSignInForm": {
+    "message": "stash 未在此页面找到可见的登录表单。"
+  },
+  "noUsername": {
+    "message": "无用户名"
+  },
+  "notNow": {
+    "message": "暂不"
+  },
+  "notSaved": {
+    "message": "未保存"
+  },
+  "nothingFilled": {
+    "message": "未填充任何内容"
+  },
+  "off": {
+    "message": "已关闭"
+  },
+  "on": {
+    "message": "已开启"
+  },
+  "openStash": {
+    "message": "打开 stash"
+  },
+  "pageChanged": {
+    "message": "填充前页面已发生变化。"
+  },
+  "pageUnreadable": {
+    "message": "stash 无法读取此标签页"
+  },
+  "permissionDenied": {
+    "message": "浏览器权限未获授权，功能未开启。"
+  },
+  "requiresHttps": {
+    "message": "stash 仅在通过 HTTPS 加载的页面上进行填充"
+  },
+  "save": {
+    "message": "保存"
+  },
+  "saveCardDetail": {
+    "message": "来自 $host$ 的 $summary$。保存时需要通过 Touch ID 验证。",
+    "placeholders": {
+      "host": {
+        "content": "$2"
+      },
+      "summary": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveLoginFor": {
+    "message": "保存 $host$ 的登录项？",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveThisCard": {
+    "message": "将此支付卡保存到 stash？"
+  },
+  "saveThisLogin": {
+    "message": "保存此登录项？"
+  },
+  "saveToStash": {
+    "message": "保存到 stash"
+  },
+  "saved": {
+    "message": "已保存到 stash ✓"
+  },
+  "savedAs": {
+    "message": "保存为 $name$。",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "saving": {
+    "message": "正在保存…"
+  },
+  "search": {
+    "message": "搜索"
+  },
+  "settings": {
+    "message": "设置"
+  },
+  "settingsTitle": {
+    "message": "stash 设置"
+  },
+  "thisLogin": {
+    "message": "此登录项"
+  },
+  "touchIdCancelled": {
+    "message": "已取消 Touch ID 验证。"
+  },
+  "twoFactor": {
+    "message": "双重验证"
+  },
+  "unexpectedError": {
+    "message": "发生错误"
+  },
+  "unlockToSeeItems": {
+    "message": "解锁后可查看适用于此页面的登录项和支付卡。"
+  },
+  "unlockTouchId": {
+    "message": "使用 Touch ID 解锁"
+  },
+  "update": {
+    "message": "更新"
+  },
+  "updatePassword": {
+    "message": "更新 $host$ 的密码？",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "updatePasswordDetail": {
+    "message": "stash 会保存 $username$ 的新密码，并在该登录项中保留旧密码。",
+    "placeholders": {
+      "username": {
+        "content": "$1"
+      }
+    }
+  },
+  "waitingTouchId": {
+    "message": "正在等待 Touch ID 验证…"
+  },
+  "withoutUsername": {
+    "message": "无用户名。"
+  }
+}

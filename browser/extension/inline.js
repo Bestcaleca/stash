@@ -39,12 +39,15 @@
         box-shadow: 0 8px 30px rgba(0,0,0,.25); background: transparent; color-scheme: normal;
       }
     </style>
-    <button class="icon" type="button" title="Fill with stash" aria-label="Fill with stash" hidden></button>
+    <button class="icon" type="button" hidden></button>
     <iframe class="menu" title="stash" hidden></iframe>
-    <iframe class="save" title="Save to stash" hidden></iframe>`;
+    <iframe class="save" hidden></iframe>`;
   const icon = shadow.querySelector(".icon");
   const menu = shadow.querySelector(".menu");
   const save = shadow.querySelector(".save");
+  icon.title = chrome.i18n.getMessage("fillWithStash");
+  icon.setAttribute("aria-label", icon.title);
+  save.title = chrome.i18n.getMessage("saveToStash");
   let field = null;
   let hideTimer = null;
 

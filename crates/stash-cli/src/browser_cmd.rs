@@ -47,6 +47,9 @@ pub(crate) const EXTENSION: &[(&str, &[u8])] = extension_files![
     "fonts/JetBrainsMono.ttf",
     "fonts/OFL-IBMPlexSans.txt",
     "fonts/OFL-JetBrainsMono.txt",
+    "i18n.js",
+    "_locales/en/messages.json",
+    "_locales/zh_CN/messages.json",
 ];
 
 #[derive(Clone, Copy, PartialEq)]

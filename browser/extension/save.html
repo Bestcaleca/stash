@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="color-scheme" content="light dark">
-  <title>Save to stash</title>
+  <title data-i18n="saveToStash">Save to stash</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body class="embedded save">
@@ -12,13 +12,14 @@
     <span class="wordmark">stash<span class="dot">.</span></span>
   </header>
   <main id="main" aria-live="polite">
-    <p class="title" id="title">Save this login?</p>
+    <p class="title" id="title" data-i18n="saveThisLogin">Save this login?</p>
     <p class="note" id="detail"></p>
     <div class="actions">
-      <button id="no" class="link" type="button">Not now</button>
-      <button id="yes" class="primary" type="button">Save</button>
+      <button id="no" class="link" type="button" data-i18n="notNow">Not now</button>
+      <button id="yes" class="primary" type="button" data-i18n="save">Save</button>
     </div>
   </main>
+  <script src="i18n.js"></script>
   <script src="save.js"></script>
 </body>
 </html>

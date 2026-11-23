@@ -43,14 +43,13 @@ function message(title, detail, action) {
 
 function errorText(error) {
   if (error === "not-installed") return null;
-  if (error === "cancelled") return "Touch ID was cancelled.";
-  return error;
+  return localizedError(error);
 }
 
 function notInstalled() {
   message(
-    "Connect stash to this browser",
-    el("span", {}, ["Run ", el("code", {}, "stash browser install"), " in Terminal, then open stash again."]),
+    t("connectBrowser"),
+    t("connectInstructions", "stash browser install"),
   );
 }
 
@@ -58,7 +57,7 @@ async function load() {
   if (!embedded) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     tabId = tab?.id ?? null;
-    if (tabId == null) return message("No page to fill");
+    if (tabId == null) return message(t("noPage"));
   }
   const reply = await send({ type: "suggest" });
   render(reply);
@@ -67,28 +66,28 @@ async function load() {
 function render(reply) {
   if (!reply.ok) {
     if (reply.error === "not-installed") return notInstalled();
-    return message("stash can't fill this page", errorText(reply.error));
+    return message(t("cannotFillPage"), errorText(reply.error));
   }
   hostChip.textContent = reply.host;
   hostChip.hidden = false;
   if (reply.locked) {
-    const button = el("button", { class: "primary", type: "button", onclick: unlock }, "Unlock with Touch ID");
-    message("stash is locked", "Unlock to see your logins and cards for this page.", button);
+    const button = el("button", { class: "primary", type: "button", onclick: unlock }, t("unlockTouchId"));
+    message(t("locked"), t("unlockToSeeItems"), button);
     button.focus();
     return;
   }
   rows = [];
   const sections = [];
   if (reply.logins.length) {
-    sections.push(section(`Logins for ${reply.host}`, reply.logins.map((l) => row(l.name, l.username || "No username", "login", l.has_otp ? "2FA" : null))));
+    sections.push(section(t("loginsFor", reply.host), reply.logins.map((l) => row(l.name, l.username || t("noUsername"), "login", l.has_otp ? t("twoFactor") : null))));
   } else {
-    sections.push(el("p", { class: "empty" }, [`No logins saved for ${reply.host}. `, el("span", {}, "Add the site's address to a login in stash.")]));
+    sections.push(el("p", { class: "empty" }, t("noLogins", reply.host)));
   }
   const cards = reply.payments.filter((p) => p.kind === "card");
   const banks = reply.payments.filter((p) => p.kind === "bank");
-  if (cards.length) sections.push(section("Cards", cards.map((c) => row(c.name, c.summary || "Card", "card"))));
-  if (banks.length) sections.push(section("Bank accounts", banks.map((b) => row(b.name, b.summary || "Bank account", "bank"))));
-  const search = el("input", { class: "search", type: "search", placeholder: "Search", "aria-label": "Search", oninput: filter });
+  if (cards.length) sections.push(section(t("cards"), cards.map((c) => row(c.name, c.summary || t("card"), "card"))));
+  if (banks.length) sections.push(section(t("bankAccounts"), banks.map((b) => row(b.name, b.summary || t("bankAccount"), "bank"))));
+  const search = el("input", { class: "search", type: "search", placeholder: t("search"), "aria-label": t("search"), oninput: filter });
   show(search, el("div", { class: "list", role: "listbox" }, sections));
   footer.hidden = false;
   select(0);
@@ -125,7 +124,7 @@ function row(name, detail, kind, badge) {
     el("span", { class: "icon", "aria-hidden": "true" }, icon(kind)),
     el("span", { class: "text" }, [el("span", { class: "name" }, name), el("span", { class: "detail" }, detail)]),
     badge && el("span", { class: "badge" }, badge),
-    kind !== "login" && el("span", { class: "touch", title: "Asks for Touch ID" }, "Touch ID"),
+    kind !== "login" && el("span", { class: "touch", title: t("asksTouchId") }, "Touch ID"),
   ]);
   node.dataset.search = `${name} ${detail}`.toLowerCase();
   rows.push(node);
@@ -152,7 +151,7 @@ function filter(event) {
 }
 
 async function unlock() {
-  message("Waiting for Touch ID…");
+  message(t("waitingTouchId"));
   render(await send({ type: "unlock" }));
 }
 
@@ -160,19 +159,19 @@ async function pick(node, name, kind) {
   for (const r of rows) r.disabled = true;
   node.classList.add("busy");
   const detail = node.querySelector(".detail");
-  detail.textContent = kind === "login" ? "Filling…" : "Waiting for Touch ID…";
+  detail.textContent = kind === "login" ? t("filling") : t("waitingTouchId");
   const reply = await send({ type: "fill", name, kind });
   if (!reply.ok) {
     if (reply.error === "stash is locked") return load();
     if (reply.error === "not-installed") return notInstalled();
-    return message("Nothing was filled", errorText(reply.error));
+    return message(t("nothingFilled"), errorText(reply.error));
   }
   if (!reply.filled.length) {
-    return message("No fields to fill", kind === "login"
-      ? "stash didn't find a visible sign-in form on this page."
-      : "stash didn't find visible payment fields on this page.");
+    return message(t("noFields"), kind === "login"
+      ? t("noSignInForm")
+      : t("noPaymentFields"));
   }
-  message("Filled ✓");
+  message(t("filled"));
   setTimeout(close, 500);
 }
 
@@ -200,4 +199,4 @@ document.getElementById("lock").addEventListener("click", async () => {
   load();
 });
 
-load().catch((e) => message("Something went wrong", String(e.message || e)));
+load().catch((e) => message(t("unexpectedError"), String(e.message || e)));

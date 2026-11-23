@@ -14,17 +14,18 @@
   </header>
 
   <main id="main" aria-live="polite">
-    <p class="status">Connecting…</p>
+    <p class="status" data-i18n="connecting">Connecting…</p>
   </main>
 
   <footer id="footer" hidden>
-    <span id="hint">↑↓ to choose · ↩ to fill</span>
+    <span id="hint" data-i18n="keyboardHint">↑↓ to choose · ↩ to fill</span>
     <span>
-      <button id="settings" class="link" type="button">Settings</button> ·
-      <button id="lock" class="link" type="button">Lock</button>
+      <button id="settings" class="link" type="button" data-i18n="settings">Settings</button> ·
+      <button id="lock" class="link" type="button" data-i18n="lock">Lock</button>
     </span>
   </footer>
 
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

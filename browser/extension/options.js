@@ -9,14 +9,14 @@ const status = document.getElementById("status");
 
 async function refresh() {
   box.checked = await chrome.permissions.contains(ORIGINS);
-  status.textContent = box.checked ? "On." : "Off.";
+  status.textContent = box.checked ? t("on") : t("off");
 }
 
 box.addEventListener("change", async () => {
   try {
     if (box.checked) {
       const granted = await chrome.permissions.request(ORIGINS);
-      if (!granted) status.textContent = "Not turned on: the browser's permission wasn't granted.";
+      if (!granted) status.textContent = t("permissionDenied");
     } else {
       await chrome.permissions.remove(ORIGINS);
     }

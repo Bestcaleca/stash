@@ -139,3 +139,22 @@ test("a dismissed card is dropped from memory", async () => {
   await b.send({ type: "save-dismiss", token }, prompt);
   assert.equal((await b.send({ type: "save-info", token }, prompt)).ok, false);
 });
+
+test("the browser locales provide matching messages and substitution arguments", () => {
+  const extension = new URL("../extension/", import.meta.url);
+  const catalog = (locale) =>
+    JSON.parse(readFileSync(new URL("_locales/" + locale + "/messages.json", extension), "utf8"));
+  const english = catalog("en");
+  const chinese = catalog("zh_CN");
+  assert.deepEqual(Object.keys(chinese).sort(), Object.keys(english).sort());
+  for (const [key, entry] of Object.entries(english)) {
+    assert.ok(chinese[key].message, key);
+    assert.deepEqual(chinese[key].placeholders, entry.placeholders, key);
+  }
+  for (const page of ["popup.html", "menu.html", "save.html", "options.html"]) {
+    const html = readFileSync(new URL(page, extension), "utf8");
+    for (const [, key] of html.matchAll(/data-i18n="([^"]+)"/g)) {
+      assert.ok(english[key]?.message, key);
+    }
+  }
+});
