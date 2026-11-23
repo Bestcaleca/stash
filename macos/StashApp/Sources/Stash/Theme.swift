@@ -160,11 +160,11 @@ struct SecondaryButtonStyle: ButtonStyle {
 /// A small square icon button (copy, reveal, close).
 struct IconButton: View {
     let symbol: String
-    let help: String
+    let help: LocalizedStringKey
     let action: () -> Void
     @ViewState private var hovering = false
 
-    init(_ symbol: String, help: String, action: @escaping () -> Void) {
+    init(_ symbol: String, help: LocalizedStringKey, action: @escaping () -> Void) {
         self.symbol = symbol
         self.help = help
         self.action = action
@@ -243,7 +243,7 @@ struct Keycap: View {
 /// A hint like "[↩] copy password".
 struct KeyHint: View {
     let keys: String
-    let label: String
+    let label: LocalizedStringKey
     var body: some View {
         HStack(spacing: 5) {
             Keycap(keys: keys)
@@ -256,19 +256,40 @@ struct KeyHint: View {
 /// sentence-case ("One-time password").
 func displayLabel(_ label: String) -> String {
     switch label {
-    case "cvv": "Security code"
-    case "number": "Card number"
-    case "billing zip": "Billing ZIP"
+    case "cvv": String(localized: "Security code")
+    case "number": String(localized: "Card number")
+    case "billing zip": String(localized: "Billing ZIP")
     case "iban": "IBAN"
     case "swift": "SWIFT/BIC"
     case "pin": "PIN"
+    case "username": String(localized: "Username")
+    case "password": String(localized: "Password")
+    case "website": String(localized: "Website")
+    case "account holder": String(localized: "Account holder")
+    case "account number": String(localized: "Account number")
+    case "account type": String(localized: "Account type")
+    case "routing number": String(localized: "Routing number")
+    case "cardholder": String(localized: "Name on card")
+    case "expiry": String(localized: "Expiry")
+    case "bank": String(localized: "Bank")
+    case "public key": String(localized: "Public key")
+    case "private key": String(localized: "Private key")
+    case "fingerprint": String(localized: "Fingerprint")
+    case "one-time password": String(localized: "Two-Factor Code")
     default: label.prefix(1).uppercased() + label.dropFirst()
     }
 }
 
 /// Values shown as typed, except a few stored lowercase ("checking").
 func displayValue(_ value: String, label: String) -> String {
-    label == "account type" ? value.prefix(1).uppercased() + value.dropFirst() : value
+    guard label == "account type" else { return value }
+    switch value {
+    case "checking": return String(localized: "Checking")
+    case "savings": return String(localized: "Savings")
+    case "business": return String(localized: "Business")
+    case "other": return String(localized: "Other")
+    default: return value.prefix(1).uppercased() + value.dropFirst()
+    }
 }
 
 /// The one way hidden values are shown.
@@ -404,10 +425,10 @@ func relative(_ unix: Int) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(unix))
     let seconds = Date().timeIntervalSince(date)
     switch seconds {
-    case ..<60: return "just now"
-    case ..<3600: return "\(Int(seconds / 60))m ago"
-    case ..<86_400: return "\(Int(seconds / 3600))h ago"
-    case ..<(86_400 * 30): return "\(Int(seconds / 86_400))d ago"
+    case ..<60: return String(localized: "just now")
+    case ..<3600: return String(localized: "\(Int(seconds / 60))m ago")
+    case ..<86_400: return String(localized: "\(Int(seconds / 3600))h ago")
+    case ..<(86_400 * 30): return String(localized: "\(Int(seconds / 86_400))d ago")
     case ..<(86_400 * 300): return date.formatted(.dateTime.month(.abbreviated).day())
     default: return date.formatted(.dateTime.month(.abbreviated).year())
     }

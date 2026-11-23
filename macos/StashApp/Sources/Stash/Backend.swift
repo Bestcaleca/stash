@@ -8,7 +8,14 @@ struct BackendError: LocalizedError {
     let code: Int
     let message: String
 
-    var errorDescription: String? { message }
+    var errorDescription: String? {
+        switch code {
+        case -32001: String(localized: "stash is locked")
+        case -32003: String(localized: "wrong master password (or the vault's header was modified)")
+        case -32004: String(localized: "Touch ID was cancelled")
+        default: message
+        }
+    }
     var isLocked: Bool { code == -32001 }
     var isCancelled: Bool { code == -32004 }
     var isWrongPassword: Bool { code == -32003 }

@@ -52,11 +52,11 @@ enum QRScanError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noCode: "No QR code found. Make sure the whole code is visible, then try again."
-        case .notTwoFactor: "That QR code isn't a 2FA setup code."
+        case .noCode: String(localized: "No QR code found. Make sure the whole code is visible, then try again.")
+        case .notTwoFactor: String(localized: "That QR code isn't a 2FA setup code.")
         case .needsPermission:
-            "stash needs Screen Recording permission to scan the screen. Allow it in System Settings → Privacy & Security → Screen & System Audio Recording, then try again. Or paste a screenshot instead."
-        case .unreadableImage: "That file isn't an image stash can read."
+            String(localized: "stash needs Screen Recording permission to scan the screen. Allow it in System Settings → Privacy & Security → Screen & System Audio Recording, then try again. Or paste a screenshot instead.")
+        case .unreadableImage: String(localized: "That file isn't an image stash can read.")
         }
     }
 }
@@ -140,7 +140,7 @@ enum QRScanner {
     static func chooseFile() throws -> OTPSetup? {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
-        panel.message = "Choose a screenshot of the 2FA QR code"
+        panel.message = String(localized: "Choose a screenshot of the 2FA QR code")
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         return try fromFile(url)
     }

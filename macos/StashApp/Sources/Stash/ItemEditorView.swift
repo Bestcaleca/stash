@@ -91,7 +91,7 @@ struct ItemEditorView: View {
                 VStack(spacing: 16) {
                     Card(padding: 16, fill: true) {
                         VStack(alignment: .leading, spacing: 14) {
-                            LabeledInput("Name", hint: "Use a slash for folders, like work/aws") {
+                            LabeledInput("Name", hint: String(localized: "Use a slash for folders, like work/aws")) {
                                 FieldBox {
                                     TextField("", text: $name, prompt: Text(namePlaceholder).foregroundStyle(Color.inkTertiary))
                                 }
@@ -245,7 +245,7 @@ struct ItemEditorView: View {
     }
 
     private func keepPrompt(_ label: String, _ empty: String = "") -> Text {
-        Text(storedSensitive.contains(label) ? "Unchanged" : empty).foregroundStyle(Color.inkTertiary)
+        Text(storedSensitive.contains(label) ? String(localized: "Unchanged") : empty).foregroundStyle(Color.inkTertiary)
     }
 
     /// The live card above the form: it fills in as you type, and turns over
@@ -493,31 +493,31 @@ struct ItemEditorView: View {
 
     private var problem: String? {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return "Give it a name." }
-        if trimmed.contains(" ") { return "Names can't contain spaces (try github or work/aws)." }
+        if trimmed.isEmpty { return String(localized: "Give it a name.") }
+        if trimmed.contains(" ") { return String(localized: "Names can't contain spaces (try github or work/aws).") }
         if kind == .ssh && isNew && sshImporting {
-            if sshFile == nil { return "Choose the private key file to import." }
-            if sshNeedsPassphrase && sshPassphrase.isEmpty { return "Enter the key file's passphrase." }
+            if sshFile == nil { return String(localized: "Choose the private key file to import.") }
+            if sshNeedsPassphrase && sshPassphrase.isEmpty { return String(localized: "Enter the key file's passphrase.") }
         }
         if isNew && kind != .note && kind != .ssh && secret.isEmpty {
-            return kind == .login ? "Enter or generate a password." : "Enter the secret's value."
+            return kind == .login ? String(localized: "Enter or generate a password.") : String(localized: "Enter the secret's value.")
         }
-        if kind == .note && notes.isEmpty && !(hadNotes && !notesLoaded) { return "Write the note." }
+        if kind == .note && notes.isEmpty && !(hadNotes && !notesLoaded) { return String(localized: "Write the note.") }
         if kind == .card {
-            if isNew && cardNumber.isEmpty { return "Enter the card number." }
-            if !cardNumber.isEmpty && !PaymentHints.luhn(cardNumber) { return "Check the card number for a typo." }
+            if isNew && cardNumber.isEmpty { return String(localized: "Enter the card number.") }
+            if !cardNumber.isEmpty && !PaymentHints.luhn(cardNumber) { return String(localized: "Check the card number for a typo.") }
             if !expiry.isEmpty && expiry.range(of: #"^\d{1,2}/(\d{2}|\d{4})$"#, options: .regularExpression) == nil {
-                return "Use MM/YY for the expiry date."
+                return String(localized: "Use MM/YY for the expiry date.")
             }
             if let status = PaymentHints.expiryStatus(expiry), status.blocks { return status.text }
         }
         if kind == .bank {
             let hasStored = storedSensitive.contains("account number") || storedSensitive.contains("iban")
-            if accountNumber.isEmpty && iban.isEmpty && !hasStored { return "Enter an account number or an IBAN." }
-            if !routing.isEmpty && !PaymentHints.routingOK(routing) { return "Check the routing number for a typo." }
+            if accountNumber.isEmpty && iban.isEmpty && !hasStored { return String(localized: "Enter an account number or an IBAN.") }
+            if !routing.isEmpty && !PaymentHints.routingOK(routing) { return String(localized: "Check the routing number for a typo.") }
         }
         if custom.contains(where: { $0.label.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            return "Every field needs a label."
+            return String(localized: "Every field needs a label.")
         }
         return nil
     }
@@ -637,7 +637,7 @@ struct ItemEditorView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             if sshImporting {
-                LabeledInput("Private key file", hint: "Usually ~/.ssh/id_ed25519. Ed25519 keys in OpenSSH format.") {
+                LabeledInput("Private key file", hint: String(localized: "Usually ~/.ssh/id_ed25519. Ed25519 keys in OpenSSH format.")) {
                     HStack(spacing: 10) {
                         Button {
                             chooseSSHFile()
@@ -655,12 +655,12 @@ struct ItemEditorView: View {
                     }
                 }
                 if sshNeedsPassphrase {
-                    LabeledInput("Passphrase", hint: "Only used to read the file. In stash, the vault protects the key.") {
+                    LabeledInput("Passphrase", hint: String(localized: "Only used to read the file. In stash, the vault protects the key.")) {
                         FieldBox { SecureField("", text: $sshPassphrase, prompt: Text("The key file's passphrase").foregroundStyle(Color.inkTertiary)) }
                     }
                 }
             } else {
-                LabeledInput("Comment", hint: "Shown at the end of the public key, like you@laptop.") {
+                LabeledInput("Comment", hint: String(localized: "Shown at the end of the public key, like you@laptop.")) {
                     FieldBox(mono: false) {
                         TextField("", text: $sshComment, prompt: Text(name.isEmpty ? "you@laptop" : name).foregroundStyle(Color.inkTertiary))
                     }
@@ -678,7 +678,7 @@ struct ItemEditorView: View {
 
     private func chooseSSHFile() {
         let panel = NSOpenPanel()
-        panel.message = "Choose an SSH private key (the file without .pub)"
+        panel.message = String(localized: "Choose an SSH private key (the file without .pub)")
         panel.showsHiddenFiles = true
         panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".ssh")
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -693,7 +693,7 @@ struct ItemEditorView: View {
         let result: (ok: Bool, needsPassphrase: Bool)
         if sshImporting, let sshFile {
             guard let text = try? String(contentsOf: sshFile, encoding: .utf8) else {
-                model.error = "Couldn't read \(sshFile.lastPathComponent)."
+                model.error = String(localized: "Couldn't read \(sshFile.lastPathComponent).")
                 return
             }
             let passphrase = sshPassphrase.isEmpty ? nil : sshPassphrase
@@ -789,11 +789,11 @@ struct GeneratorView: View {
 
 /// A label above an input, with an optional hint below.
 struct LabeledInput<Content: View>: View {
-    let label: String
+    let label: LocalizedStringKey
     var hint: String?
     @ViewBuilder var content: Content
 
-    init(_ label: String, hint: String? = nil, @ViewBuilder content: () -> Content) {
+    init(_ label: LocalizedStringKey, hint: String? = nil, @ViewBuilder content: () -> Content) {
         self.label = label
         self.hint = hint
         self.content = content()

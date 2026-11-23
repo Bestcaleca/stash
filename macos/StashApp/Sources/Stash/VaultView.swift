@@ -95,7 +95,7 @@ struct Sidebar: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    SidebarSection(title: "Vault") {
+                    SidebarSection(title: String(localized: "Vault")) {
                         row(.all, "tray.full")
                         row(.kind(.login), ItemKind.login.symbol)
                         row(.kind(.secret), ItemKind.secret.symbol)
@@ -105,7 +105,7 @@ struct Sidebar: View {
                         row(.kind(.ssh), ItemKind.ssh.symbol)
                     }
                     if !model.folders.isEmpty {
-                        SidebarSection(title: "Folders") {
+                        SidebarSection(title: String(localized: "Folders")) {
                             ForEach(model.folders, id: \.self) { row(.folder($0), "folder") }
                         }
                     }
@@ -247,13 +247,13 @@ struct ItemsPane: View {
             Card {
                 VStack(spacing: 0) {
                     HStack(spacing: 14) {
-                        (Text("\(model.filtered.count)").font(.plex(13, weight: .semibold))
-                            + Text(" of ").font(.plex(13))
-                            + Text("\(model.scopeCount)").font(.plex(13, weight: .semibold))
-                            + Text(model.scopeCount == 1 ? " item" : " items").font(.plex(13)))
+                        Text(model.scopeCount == 1
+                             ? "\(model.filtered.count) of \(model.scopeCount) item"
+                             : "\(model.filtered.count) of \(model.scopeCount) items")
+                            .font(.plex(13))
                             .foregroundStyle(Color.inkSecondary)
                             .fixedSize()
-                        SearchField(prompt: "Search \(model.filter.title.lowercased())", text: $model.search)
+                        SearchField(prompt: String(localized: "Search \(model.filter.title.lowercased())"), text: $model.search)
                             .frame(maxWidth: 300)
                         Spacer()
                         Menu {
@@ -321,11 +321,11 @@ struct ItemTable: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Eyebrow(text: "Name").frame(maxWidth: .infinity, alignment: .leading)
-                if columns.details { Eyebrow(text: "Details").frame(width: Col.user, alignment: .leading) }
-                if columns.site { Eyebrow(text: "Website").frame(width: Col.site, alignment: .leading) }
-                Eyebrow(text: "2FA").frame(width: Col.otp, alignment: .center)
-                if columns.updated { Eyebrow(text: "Updated").frame(width: Col.updated, alignment: .trailing) }
+                Eyebrow(text: String(localized: "Name")).frame(maxWidth: .infinity, alignment: .leading)
+                if columns.details { Eyebrow(text: String(localized: "Details")).frame(width: Col.user, alignment: .leading) }
+                if columns.site { Eyebrow(text: String(localized: "Website")).frame(width: Col.site, alignment: .leading) }
+                Eyebrow(text: String(localized: "2FA")).frame(width: Col.otp, alignment: .center)
+                if columns.updated { Eyebrow(text: String(localized: "Updated")).frame(width: Col.updated, alignment: .trailing) }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
@@ -458,15 +458,15 @@ struct RowActions: View {
                     Task {
                         if await model.copyPrimary(item) {
                             model.flash(item.kind == .ssh
-                                ? "Copied \(item.title)'s public key"
-                                : "Copied \(item.title) · clears in \(Int(Clipboard.clearAfter))s")
+                                ? String(localized: "Copied \(item.title)'s public key")
+                                : String(localized: "Copied \(item.title) · clears in \(Int(Clipboard.clearAfter))s"))
                         }
                     }
                 }
             }
             if item.hasOtp {
                 IconButton("clock", help: "Copy 2FA code") {
-                    Task { if await model.copyOTP(for: item) { model.flash("Copied 2FA code") } }
+                    Task { if await model.copyOTP(for: item) { model.flash(String(localized: "Copied 2FA code")) } }
                 }
             }
         }

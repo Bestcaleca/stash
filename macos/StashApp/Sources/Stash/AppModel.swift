@@ -37,8 +37,8 @@ final class AppModel: ObservableObject {
 
         var title: String {
             switch self {
-            case .all: "All Items"
-            case .kind(let k): k == .note ? "Secure Notes" : "\(k.title)s"
+            case .all: String(localized: "All Items")
+            case .kind(let k): k.pluralTitle
             case .folder(let f): f
             }
         }
@@ -96,7 +96,7 @@ final class AppModel: ObservableObject {
 
     func start() async {
         guard let backend else {
-            screen = .failed("Couldn't start the stash backend. Is the stash command-line tool installed?")
+            screen = .failed(String(localized: "Couldn't start the stash backend. Is the stash command-line tool installed?"))
             return
         }
         do {
@@ -216,18 +216,18 @@ final class AppModel: ObservableObject {
     func copySecret(_ field: String, label: String) async {
         guard let value = await reveal(field) else { return }
         Clipboard.copySecret(value)
-        flash("Copied \(label) · clears in \(Int(Clipboard.clearAfter))s")
+        flash(String(localized: "Copied \(label) · clears in \(Int(Clipboard.clearAfter))s"))
     }
 
     func copyOTP() async {
         guard let code = await otp() else { return }
         Clipboard.copySecret(code.code)
-        flash("Copied 2FA code")
+        flash(String(localized: "Copied 2FA code"))
     }
 
     func copyPlain(_ value: String, label: String) {
         Clipboard.copy(value)
-        flash("Copied \(label)")
+        flash(String(localized: "Copied \(label)"))
     }
 
     func flash(_ message: String) {
@@ -295,7 +295,7 @@ final class AppModel: ObservableObject {
         if !search.isEmpty && !filtered.contains(where: { $0.name == name }) {
             search = ""
         }
-        if let movedTo { flash("Saved to \(movedTo)") }
+        if let movedTo { flash(String(localized: "Saved to \(movedTo)")) }
     }
 
     /// Import the chosen entries of an export file, then show the vault

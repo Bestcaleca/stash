@@ -24,6 +24,11 @@ cp macos/StashApp/Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 # Brand fonts (SIL Open Font License; the licenses ship alongside).
 mkdir -p "$app/Contents/Resources/Fonts"
 cp macos/StashApp/Sources/Stash/Fonts/* "$app/Contents/Resources/Fonts/"
+for locale in locales/apple/*.lproj; do
+    resource_dir="$app/Contents/Resources/${locale##*/}"
+    mkdir -p "$resource_dir"
+    cp "$locale/Localizable.strings" "$resource_dir/"
+done
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -33,6 +38,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>io.github.mrlopez62.stash</string>
     <key>CFBundleName</key><string>stash</string>
     <key>CFBundleDisplayName</key><string>stash</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleExecutable</key><string>Stash</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>

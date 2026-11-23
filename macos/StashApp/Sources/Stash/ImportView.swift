@@ -45,8 +45,13 @@ extension [ItemKind] {
         let counts = Dictionary(grouping: self, by: { $0 }).mapValues(\.count)
         return ItemKind.allCases.compactMap { kind in
             guard let n = counts[kind] else { return nil }
-            let noun = kind == .note ? "note" : kind.title.lowercased()
-            return "\(n) \(noun)\(n == 1 ? "" : "s")"
+            let noun: String
+            if kind == .note {
+                noun = n == 1 ? String(localized: "note") : String(localized: "notes")
+            } else {
+                noun = (n == 1 ? kind.title : kind.pluralTitle).lowercased()
+            }
+            return String(localized: "\(n) \(noun)")
         }.joined(separator: ", ")
     }
 }
@@ -56,9 +61,9 @@ extension AppModel {
     func chooseImportFile() {
         guard case .unlocked = screen else { return }
         let panel = NSOpenPanel()
-        panel.title = "Import passwords"
-        panel.message = "Choose an export from Chrome, Safari, Firefox, 1Password, Bitwarden, or another password manager."
-        panel.prompt = "Review"
+        panel.title = String(localized: "Import passwords")
+        panel.message = String(localized: "Choose an export from Chrome, Safari, Firefox, 1Password, Bitwarden, or another password manager.")
+        panel.prompt = String(localized: "Review")
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url {
@@ -148,7 +153,9 @@ struct ImportView: View {
         let chosen = preview.entries.filter { selected.contains($0.index) }
         return VStack(spacing: 0) {
             HStack {
-                Text("Found \(preview.entries.count) item\(preview.entries.count == 1 ? "" : "s") in this \(preview.format) export: \(preview.entries.map(\.kind).summary)")
+                Text(preview.entries.count == 1
+                     ? "Found 1 item in this \(preview.format) export: \(preview.entries.map(\.kind).summary)"
+                     : "Found \(preview.entries.count) items in this \(preview.format) export: \(preview.entries.map(\.kind).summary)")
                     .font(.plex(13))
                     .foregroundStyle(Color.inkSecondary)
                 Spacer()
@@ -208,7 +215,7 @@ struct ImportView: View {
                 Button("Cancel") { dismiss() }
                     .buttonStyle(SecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button(busy ? "Importing…" : "Import \(chosen.count) Item\(chosen.count == 1 ? "" : "s")") {
+                Button(busy ? "Importing…" : chosen.count == 1 ? "Import 1 Item" : "Import \(chosen.count) Items") {
                     Task { await runImport(preview) }
                 }
                 .buttonStyle(PrimaryButtonStyle())
@@ -271,7 +278,9 @@ struct ImportView: View {
                     Label(
                         result.added.isEmpty
                             ? "Nothing new to import"
-                            : "Imported \(result.added.count) item\(result.added.count == 1 ? "" : "s"): \(result.added.summary)",
+                            : result.added.count == 1
+                                ? "Imported 1 item: \(result.added.summary)"
+                                : "Imported \(result.added.count) items: \(result.added.summary)",
                         systemImage: "checkmark.circle.fill")
                         .font(.plex(15, weight: .semibold))
                         .foregroundStyle(Color.ink)

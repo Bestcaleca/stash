@@ -108,8 +108,8 @@ struct CreateVaultView: View {
     @ViewState private var confirm = ""
 
     private var problem: String? {
-        if password.count < 8 { return "Use at least 8 characters. A long passphrase is best." }
-        if password != confirm { return "The passwords don't match." }
+        if password.count < 8 { return String(localized: "Use at least 8 characters. A long passphrase is best.") }
+        if password != confirm { return String(localized: "The passwords don't match.") }
         return nil
     }
 

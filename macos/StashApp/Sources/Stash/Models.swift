@@ -6,12 +6,23 @@ enum ItemKind: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .login: "Login"
-        case .secret: "Secret"
-        case .note: "Secure Note"
-        case .card: "Payment Card"
-        case .bank: "Bank Account"
-        case .ssh: "SSH Key"
+        case .login: String(localized: "Login")
+        case .secret: String(localized: "Secret")
+        case .note: String(localized: "Secure Note")
+        case .card: String(localized: "Payment Card")
+        case .bank: String(localized: "Bank Account")
+        case .ssh: String(localized: "SSH Key")
+        }
+    }
+
+    var pluralTitle: String {
+        switch self {
+        case .login: String(localized: "Logins")
+        case .secret: String(localized: "Secrets")
+        case .note: String(localized: "Secure Notes")
+        case .card: String(localized: "Payment Cards")
+        case .bank: String(localized: "Bank Accounts")
+        case .ssh: String(localized: "SSH Keys")
         }
     }
 

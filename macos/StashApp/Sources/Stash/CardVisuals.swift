@@ -304,9 +304,9 @@ private struct CardFront: View {
                         .shadow(color: .black.opacity(0.35), radius: 0.5, y: 1)
                     Spacer().frame(height: geo.size.height * 0.08)
                     HStack(alignment: .bottom) {
-                        caption("CARDHOLDER", content.cardholder?.uppercased() ?? "YOUR NAME", mono: false)
+                        caption(String(localized: "CARDHOLDER"), content.cardholder?.uppercased() ?? String(localized: "YOUR NAME"), mono: false)
                         Spacer()
-                        caption("EXPIRES", content.expiry ?? "MM/YY", mono: true, trailing: true)
+                        caption(String(localized: "EXPIRES"), content.expiry ?? "MM/YY", mono: true, trailing: true)
                     }
                 }
                 .padding(geo.size.height * 0.1)

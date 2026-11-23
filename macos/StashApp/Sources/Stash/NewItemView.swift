@@ -4,12 +4,12 @@ extension ItemKind {
     /// One line for the "New Item" picker: what this kind is for.
     var blurb: String {
         switch self {
-        case .login: "A website or app account: username, password, and 2FA codes"
-        case .secret: "An API key, token, or other single value for your code"
-        case .note: "Private text, like recovery codes or a Wi-Fi password"
-        case .card: "A credit or debit card, checked for typos as you type"
-        case .bank: "Routing and account numbers, or an IBAN and SWIFT code"
-        case .ssh: "Generate or import a key for SSH logins and git signing"
+        case .login: String(localized: "A website or app account: username, password, and 2FA codes")
+        case .secret: String(localized: "An API key, token, or other single value for your code")
+        case .note: String(localized: "Private text, like recovery codes or a Wi-Fi password")
+        case .card: String(localized: "A credit or debit card, checked for typos as you type")
+        case .bank: String(localized: "Routing and account numbers, or an IBAN and SWIFT code")
+        case .ssh: String(localized: "Generate or import a key for SSH logins and git signing")
         }
     }
 }

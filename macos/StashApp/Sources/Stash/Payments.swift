@@ -43,12 +43,12 @@ enum PaymentHints {
         let d = digits(number)
         guard d.count >= 4 else { return nil }
         let brand = brand(d)
-        let name = brand ?? "Card"
+        let name = brand ?? String(localized: "Card")
         // No verdict until the number is all there.
         let full = brand == "American Express" ? 15 : brand == "Diners Club" ? 14 : 16
         if d.count < full { return (true, name, brand, nil) }
         let ok = luhn(d)
-        let note = ok ? "looks right" : "check for a typo"
+        let note = ok ? String(localized: "looks right") : String(localized: "check for a typo")
         return (ok, "\(name) · \(note)", brand, note)
     }
 
@@ -61,16 +61,16 @@ enum PaymentHints {
         let monthText = parts.count == 2 ? parts[0] : String(typed.prefix(2))
         let yearText = parts.count == 2 ? parts[1] : String(typed.dropFirst(2))
         guard monthText.count >= 2 || (parts.count == 2 && !monthText.isEmpty), let month = Int(monthText) else { return nil }
-        guard (1...12).contains(month) else { return (false, "The month must be 01 to 12.", true) }
+        guard (1...12).contains(month) else { return (false, String(localized: "The month must be 01 to 12."), true) }
         guard yearText.count == 2 || yearText.count == 4, let typedYear = Int(yearText) else { return nil }
         let year = yearText.count == 2 ? 2000 + typedYear : typedYear
         let today = Calendar.current.dateComponents([.year, .month], from: now)
         let thisYear = today.year ?? 0
-        if year > thisYear + 20 { return (false, "Check the year: \(year) is too far away.", true) }
+        if year > thisYear + 20 { return (false, String(localized: "Check the year: \(year) is too far away."), true) }
         if year < thisYear || (year == thisYear && month < (today.month ?? 1)) {
-            return (false, "This card has expired.", false)
+            return (false, String(localized: "This card has expired."), false)
         }
-        return (true, "looks right", false)
+        return (true, String(localized: "looks right"), false)
     }
 
     static func routingOK(_ routing: String) -> Bool {
