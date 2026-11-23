@@ -17,7 +17,7 @@ struct SettingsView: View {
                             get: { model.faceIDEnrolled }, set: { model.setFaceID($0) }))
                             .tint(.keyholeAmber)
                     } else {
-                        LabeledContent("Unlock with Face ID", value: "Not available")
+                        LabeledContent("Unlock with Face ID", value: String(localized: "Not available"))
                     }
                 } footer: {
                     Text(model.faceIDEnrolled

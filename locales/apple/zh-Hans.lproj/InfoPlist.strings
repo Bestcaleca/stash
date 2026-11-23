@@ -1,0 +1,2 @@
+"NSCameraUsageDescription" = "stash 仅在扫描双重验证二维码时使用相机。图像不会保存或上传。";
+"NSFaceIDUsageDescription" = "stash 使用面容 ID 解锁保险库。";

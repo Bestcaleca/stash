@@ -7,7 +7,12 @@ import StashCore
 
 struct VaultError: LocalizedError {
     let message: String
-    var errorDescription: String? { message }
+    var errorDescription: String? {
+        if message == "wrong master password (or the vault's header was modified)" {
+            return String(localized: "wrong master password (or the vault's header was modified)")
+        }
+        return message
+    }
 }
 
 /// One item in the list: no values.
@@ -84,7 +89,7 @@ final class VaultCore: @unchecked Sendable {
 
     /// With the 64 key bytes saved for Face ID.
     static func open(path: URL, keys: Data) throws -> VaultCore {
-        guard keys.count == 64 else { throw VaultError(message: "the saved keys are damaged") }
+        guard keys.count == 64 else { throw VaultError(message: String(localized: "the saved keys are damaged")) }
         var error: UnsafeMutablePointer<CChar>?
         let handle = path.path.withCString { p in
             keys.withUnsafeBytes { stash_open_keys(p, $0.bindMemory(to: UInt8.self).baseAddress, &error) }
@@ -195,7 +200,7 @@ final class VaultCore: @unchecked Sendable {
     }
 
     private static func take(_ error: UnsafeMutablePointer<CChar>?) -> VaultError {
-        guard let error else { return VaultError(message: "something went wrong") }
+        guard let error else { return VaultError(message: String(localized: "something went wrong")) }
         defer { stash_string_free(error) }
         return VaultError(message: String(cString: error))
     }

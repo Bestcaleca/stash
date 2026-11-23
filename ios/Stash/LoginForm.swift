@@ -70,14 +70,16 @@ struct LoginFormView: View {
                     }
                 } footer: {
                     if generated {
-                        Text("Letters and numbers\(symbols ? ", plus symbols like ! ? = ( ) ; : and -" : ""). If a site refuses it, try fewer characters or turn off symbols.")
+                        Text(symbols
+                             ? "Letters and numbers, plus symbols like ! ? = ( ) ; : and -. If a site refuses it, try fewer characters or turn off symbols."
+                             : "Letters and numbers. If a site refuses it, try fewer characters.")
                     }
                 }
                 .listRowBackground(Color.surface)
 
                 Section {
                     if hasOTP && !removeOTP {
-                        LabeledContent("2FA", value: "On")
+                        LabeledContent("2FA", value: String(localized: "On"))
                         Button("Remove 2FA", role: .destructive) { removeOTP = true }
                     } else if scannedKey {
                         CheckLine(ok: true, text: "QR code scanned. Save to turn on 2FA.")

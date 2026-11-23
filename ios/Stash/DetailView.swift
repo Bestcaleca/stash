@@ -146,30 +146,39 @@ struct DetailView: View {
                     Image(systemName: shown[field.label] == nil ? "eye" : "eye.slash")
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel(shown[field.label] == nil ? "Show \(field.label)" : "Hide \(field.label)")
+                .accessibilityLabel(shown[field.label] == nil ? "Show \(displayLabel(field.label))" : "Hide \(displayLabel(field.label))")
             }
             Button {
                 if let v = field.value ?? model.reveal(item.name, field.label) {
-                    model.copy(v, label: field.label)
+                    model.copy(v, label: displayLabel(field.label))
                 }
             } label: {
                 Image(systemName: "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel("Copy \(field.label)")
+            .accessibilityLabel("Copy \(displayLabel(field.label))")
         }
         .listRowBackground(Color.surface)
     }
 
     private func displayLabel(_ label: String) -> String {
         switch label {
-        case "number": "Card Number"
-        case "cvv": "Security Code"
+        case "number": String(localized: "Card number")
+        case "cvv": String(localized: "Security code")
         case "pin": "PIN"
         case "iban": "IBAN"
         case "swift": "SWIFT"
-        case "billing zip": "Billing ZIP"
-        case "routing number": "Routing Number"
+        case "billing zip": String(localized: "Billing ZIP")
+        case "routing number": String(localized: "Routing number")
+        case "username": String(localized: "Username")
+        case "password": String(localized: "Password")
+        case "website": String(localized: "Website")
+        case "account holder": String(localized: "Account holder")
+        case "account number": String(localized: "Account number")
+        case "account type": String(localized: "Account type")
+        case "cardholder": String(localized: "Name on card")
+        case "expiry": String(localized: "Expiry")
+        case "bank": String(localized: "Bank")
         default: label.capitalized
         }
     }
@@ -226,7 +235,7 @@ struct OTPRow: View {
                     .accessibilityLabel("\(remaining) seconds left")
                 }
                 Button {
-                    if let code = code(at: .now)?.otp.code { model.copy(code, label: "2FA code") }
+                    if let code = code(at: .now)?.otp.code { model.copy(code, label: String(localized: "2FA code")) }
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }

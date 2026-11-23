@@ -24,6 +24,8 @@ targets:
     platform: iOS
     sources:
       - path: Stash
+      - path: ../locales/apple
+        buildPhase: resources
       # Shared with the Mac app: the card face, the data types, and @ViewState.
       - path: ../macos/StashApp/Sources/Stash/CardVisuals.swift
       - path: ../macos/StashApp/Sources/Stash/CardNetworkLogo.swift
@@ -45,6 +47,7 @@ targets:
       path: Stash/Info.plist
       properties:
         CFBundleDisplayName: stash
+        CFBundleDevelopmentRegion: en
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:

@@ -92,7 +92,7 @@ struct QRScannerView: View {
         }
     }
 
-    private func message(_ title: String, _ detail: String, @ViewBuilder action: () -> some View) -> some View {
+    private func message(_ title: LocalizedStringKey, _ detail: LocalizedStringKey, @ViewBuilder action: () -> some View) -> some View {
         VStack(spacing: 12) {
             Text(title).font(.plex(18, weight: .semibold)).foregroundStyle(.white)
             Text(detail).font(.plex(15)).foregroundStyle(.white.opacity(0.75)).multilineTextAlignment(.center)
@@ -105,7 +105,7 @@ struct QRScannerView: View {
         guard code != refused else { return }
         if code.hasPrefix("otpauth-migration:") {
             refused = code
-            problem = "That's an export from another app. Scan the QR code from the site itself."
+            problem = String(localized: "That's an export from another app. Scan the QR code from the site itself.")
             return
         }
         do {
@@ -113,7 +113,7 @@ struct QRScannerView: View {
             found(code)
         } catch {
             refused = code
-            problem = "That QR code isn't a 2FA setup code."
+            problem = String(localized: "That QR code isn't a 2FA setup code.")
         }
     }
 }

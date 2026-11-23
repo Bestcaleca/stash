@@ -15,9 +15,9 @@ struct CreateVaultView: View {
 
     private var problem: String? {
         if !password.isEmpty, password.count < Self.minimumLength {
-            return "Use at least \(Self.minimumLength) characters."
+            return String(localized: "Use at least \(Self.minimumLength) characters.")
         }
-        if !confirm.isEmpty, confirm != password { return "The passwords don't match." }
+        if !confirm.isEmpty, confirm != password { return String(localized: "The passwords don't match.") }
         return nil
     }
 
@@ -295,10 +295,10 @@ struct AddPaymentView: View {
 
     private var title: String {
         switch (kind, editing) {
-        case (.card, nil): "New Card"
-        case (.bank, nil): "New Bank Account"
-        case (.card, _): "Edit Card"
-        case (.bank, _): "Edit Bank Account"
+        case (.card, nil): String(localized: "New Card")
+        case (.bank, nil): String(localized: "New Bank Account")
+        case (.card, _): String(localized: "Edit Card")
+        case (.bank, _): String(localized: "Edit Bank Account")
         }
     }
 

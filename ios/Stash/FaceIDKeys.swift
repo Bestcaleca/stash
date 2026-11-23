@@ -42,7 +42,7 @@ enum FaceIDKeys {
         var cfError: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(
             nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage, .biometryCurrentSet], &cfError)
-        else { throw VaultError(message: "Face ID couldn't be set up") }
+        else { throw VaultError(message: String(localized: "Face ID couldn't be set up")) }
         let seKey = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access)
         let ephemeral = P256.KeyAgreement.PrivateKey()
         let shared = try ephemeral.sharedSecretFromKeyAgreement(with: seKey.publicKey)
@@ -61,11 +61,11 @@ enum FaceIDKeys {
     /// when the person dismissed the prompt.
     static func unlock(reason: String) async throws -> Data {
         let blob = try Data(contentsOf: file)
-        guard blob.count > 2 else { throw VaultError(message: "the Face ID data is damaged") }
+        guard blob.count > 2 else { throw VaultError(message: String(localized: "the Face ID data is damaged")) }
         let handleLen = Int(blob[0]) << 8 | Int(blob[1])
         let pubStart = 2 + handleLen
         let boxStart = pubStart + 65
-        guard blob.count > boxStart else { throw VaultError(message: "the Face ID data is damaged") }
+        guard blob.count > boxStart else { throw VaultError(message: String(localized: "the Face ID data is damaged")) }
         let handle = blob.subdata(in: 2..<pubStart)
         let ephemeralPub = blob.subdata(in: pubStart..<boxStart)
         let sealed = blob.subdata(in: boxStart..<blob.count)
@@ -86,7 +86,7 @@ enum FaceIDKeys {
             // stays off until you choose to trust the faces here now.
             forget()
             turnedOff = true
-            throw VaultError(message: "The faces on this iPhone changed, so Face ID is off for stash. Unlock with the password. If the change was yours, turn it back on in Settings.")
+            throw VaultError(message: String(localized: "The faces on this iPhone changed, so Face ID is off for stash. Unlock with the password. If the change was yours, turn it back on in Settings."))
         }
         let key = wrappingKey(shared, ephemeral: ephemeralPub, recipient: seKey.publicKey.x963Representation)
         return try ChaChaPoly.open(ChaChaPoly.SealedBox(combined: sealed), using: key)

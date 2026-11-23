@@ -365,7 +365,7 @@ struct VaultListView: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, _ items: [PhoneItem]) -> some View {
+    private func section(_ title: LocalizedStringKey, _ items: [PhoneItem]) -> some View {
         if !items.isEmpty {
             Section(title) { ForEach(items) { row($0) } }
         }

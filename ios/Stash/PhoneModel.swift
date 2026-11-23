@@ -78,7 +78,7 @@ final class PhoneModel: ObservableObject {
                 installStaged()
             } else {
                 pendingImport = true
-                if !canAskToReplace { flash("Unlock stash to replace this vault with the new file.") }
+                if !canAskToReplace { flash(String(localized: "Unlock stash to replace this vault with the new file.")) }
             }
         } catch {
             try? fm.removeItem(at: Self.stagedURL)
@@ -118,7 +118,7 @@ final class PhoneModel: ObservableObject {
             let keys = try await Task.detached(priority: .userInitiated) {
                 let made = try VaultCore.create(path: new, password: password)
                 defer { made.close() }
-                guard let keys = made.copyKeys() else { throw VaultError(message: "something went wrong") }
+                guard let keys = made.copyKeys() else { throw VaultError(message: String(localized: "something went wrong")) }
                 return keys
             }.value
             try Self.protect(new)
@@ -170,9 +170,9 @@ final class PhoneModel: ObservableObject {
             faceIDEnrolled = false
             screen = .locked
             error = nil
-            flash("Vault added. Unlock it with its password.")
+            flash(String(localized: "Vault added. Unlock it with its password."))
         } catch {
-            self.error = "Couldn't add that file: \(error.localizedDescription)"
+            self.error = String(localized: "Couldn't add that file: \(error.localizedDescription)")
         }
     }
 
@@ -225,7 +225,7 @@ final class PhoneModel: ObservableObject {
     func unlockWithFaceID() async {
         do {
             unlockFromLockMark = false
-            let keys = try await FaceIDKeys.unlock(reason: "Unlock your vault")
+            let keys = try await FaceIDKeys.unlock(reason: String(localized: "Unlock your vault"))
             await open { try VaultCore.open(path: Self.vaultURL, keys: keys) }
         } catch is CancellationError {
         } catch {
@@ -286,7 +286,7 @@ final class PhoneModel: ObservableObject {
                 try FaceIDKeys.enroll(keys)
                 FaceIDKeys.turnedOff = false
             } catch {
-                self.error = "Face ID couldn't be set up: \(error.localizedDescription)"
+                self.error = String(localized: "Face ID couldn't be set up: \(error.localizedDescription)")
             }
         } else if !on {
             FaceIDKeys.forget()
@@ -318,11 +318,11 @@ final class PhoneModel: ObservableObject {
     /// Add a login, card, or bank account to a vault made here. The name comes
     /// from the nickname or `suggested`, made unique. Throws why it was refused.
     func addItem(fields: [String: String], folder: String, nickname: String, suggested: String) throws {
-        guard madeHere, let core else { throw VaultError(message: "This vault can only be changed on your Mac.") }
+        guard madeHere, let core else { throw VaultError(message: String(localized: "This vault can only be changed on your Mac.")) }
         let name = unusedName(folder: folder, nickname: nickname, suggested: suggested)
         try core.addItem(name: name, fields: fields)
         items = try core.list()
-        flash("Added \(name.split(separator: "/").last ?? "")")
+        flash(String(localized: "Added \(String(name.split(separator: "/").last ?? ""))"))
     }
 
     private func unusedName(folder: String, nickname: String, suggested: String) -> String {
@@ -351,7 +351,7 @@ final class PhoneModel: ObservableObject {
     /// Save changes to an item in a vault made here, and return its name, which changes if the nickname did. The renamed copy
     /// is saved before the old one goes, so a failure can't lose it.
     func updateItem(_ item: PhoneItem, fields: [String: String], folder: String, nickname: String) throws -> String {
-        guard madeHere, let core else { throw VaultError(message: "This vault can only be changed on your Mac.") }
+        guard madeHere, let core else { throw VaultError(message: String(localized: "This vault can only be changed on your Mac.")) }
         let slug = ItemText.slug(nickname)
         var name = item.name
         // Whatever happens, show what the vault now holds: a rename that saved
@@ -363,7 +363,7 @@ final class PhoneModel: ObservableObject {
             name = unusedName(folder: folder, nickname: nickname, suggested: slug)
             try core.updateItem(name: item.name, newName: name, fields: fields)
         }
-        flash("Saved \(name.split(separator: "/").last ?? "")")
+        flash(String(localized: "Saved \(String(name.split(separator: "/").last ?? ""))"))
         return name
     }
 
@@ -398,7 +398,7 @@ final class PhoneModel: ObservableObject {
         UIPasteboard.general.setItems(
             [[UTType.plainText.identifier: value]],
             options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)])
-        flash("Copied \(label) · clears in 60s")
+        flash(String(localized: "Copied \(label) · clears in 60s"))
     }
 
     func flash(_ message: String) {
