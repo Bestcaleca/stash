@@ -145,7 +145,10 @@ pub fn add_login(vault: &mut Vault, name: &str, login: &LoginArgs, force: bool) 
         item.set(ONE_TIME_PASSWORD, FieldKind::Otp, read_otp()?.as_str());
     }
     vault.put(name, &item, force)?;
-    eprintln!("Saved login {name}");
+    eprintln!(
+        "{}",
+        crate::i18n::message("Saved login {name}", &[("name", &name)])
+    );
     Ok(())
 }
 
@@ -226,7 +229,9 @@ impl Secrets {
     fn next(&mut self, prompt: &str) -> Result<Option<Zeroizing<String>>> {
         let value = match &mut self.piped {
             Some(lines) => lines.next(),
-            None => Some(Zeroizing::new(rpassword::prompt_password(prompt)?)),
+            None => Some(Zeroizing::new(rpassword::prompt_password(
+                crate::i18n::text(prompt),
+            )?)),
         };
         Ok(value.filter(|v| !v.trim().is_empty()))
     }
@@ -308,7 +313,10 @@ pub fn add_note(vault: &mut Vault, name: &str, force: bool) -> Result<()> {
     check_can_add(vault, name, force, true)?;
     let text = read_text("Note: ")?;
     vault.put(name, &Item::note(text.as_str()), force)?;
-    eprintln!("Saved note {name}");
+    eprintln!(
+        "{}",
+        crate::i18n::message("Saved note {name}", &[("name", &name)])
+    );
     Ok(())
 }
 
@@ -466,7 +474,10 @@ pub fn edit(vault: &mut Vault, name: &str, args: &EditArgs) -> Result<()> {
         item.notes = notes.to_string();
     }
     vault.put(name, &item, true)?;
-    eprintln!("Updated {name}");
+    eprintln!(
+        "{}",
+        crate::i18n::message("Updated {name}", &[("name", &name)])
+    );
     Ok(())
 }
 

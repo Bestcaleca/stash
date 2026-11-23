@@ -182,10 +182,12 @@ fn phone_password() -> Result<Zeroizing<String>> {
             eprintln!(
                 "Choose a password for the phone vault. It can differ from your master password; you'll type it once on the phone, then use Face ID."
             );
-            let first = Zeroizing::new(rpassword::prompt_password("Phone vault password: ")?);
-            let second = Zeroizing::new(rpassword::prompt_password(
+            let first = Zeroizing::new(rpassword::prompt_password(crate::i18n::text(
+                "Phone vault password: ",
+            ))?);
+            let second = Zeroizing::new(rpassword::prompt_password(crate::i18n::text(
                 "Confirm phone vault password: ",
-            )?);
+            ))?);
             if first != second {
                 bail!("passwords do not match");
             }

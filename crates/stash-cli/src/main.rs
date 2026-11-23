@@ -7,6 +7,7 @@ mod envfile;
 mod export_cmd;
 mod filelock;
 mod harden;
+mod i18n;
 mod import_cmd;
 mod inject;
 mod items;
@@ -29,7 +30,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use stash_core::reference;
 use stash_core::{KdfParams, Vault};
 use zeroize::Zeroizing;
@@ -430,12 +431,18 @@ const SESSION_TIMEOUT_ENV: &str = "STASH_SESSION_TIMEOUT";
 const DEFAULT_SESSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut command = i18n::localize_help(Cli::command());
+    let mut matches = command
+        .try_get_matches_from_mut(std::env::args_os())
+        .unwrap_or_else(|error| error.exit());
+    let cli = Cli::from_arg_matches_mut(&mut matches)
+        .unwrap_or_else(|error| error.format(&mut command).exit());
     harden::process(matches!(cli.command, Command::Agent { .. }));
     match run(cli) {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("stash: {err:#}");
+            let explanation = format!("{err:#}");
+            eprintln!("stash: {}", i18n::text(&explanation));
             ExitCode::FAILURE
         }
     }
@@ -462,9 +469,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Init => {
             let password = new_password()?;
             Vault::create(&path, password.as_bytes(), KdfParams::default())?;
-            eprintln!("Created vault at {}", path.display());
+            eprintln!(
+                "{}",
+                i18n::message("Created vault at {path}", &[("path", &path.display())])
+            );
             if cfg!(target_os = "macos") {
-                eprintln!("Tip: run `stash touchid enable` to unlock with your fingerprint.");
+                eprintln!(
+                    "{}",
+                    i18n::text("Tip: run `stash touchid enable` to unlock with your fingerprint.")
+                );
             }
         }
         Command::Add {
@@ -478,9 +491,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             payment,
         } => {
             stash_core::validate_name(&name)?;
-            let mut vault = unlock(&path, &format!("add {name}"))?;
+            let mut vault = unlock(&path, &i18n::message("add {name}", &[("name", &name)]))?;
             if card || bank {
-                ensure_sensitive(&mut vault, &format!("add {name}"))?;
+                ensure_sensitive(&mut vault, &i18n::message("add {name}", &[("name", &name)]))?;
             }
             if login {
                 items::add_login(&mut vault, &name, &fields, force)?;
@@ -503,22 +516,28 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 }
                 let value = read_value(&name)?;
                 vault.add(&name, &value, force)?;
-                eprintln!("Saved {name}");
+                eprintln!("{}", i18n::message("Saved {name}", &[("name", &name)]));
             }
         }
         Command::Edit { name, args } => {
             stash_core::validate_name(&name)?;
-            let mut vault = unlock(&path, &format!("edit {name}"))?;
+            let mut vault = unlock(&path, &i18n::message("edit {name}", &[("name", &name)]))?;
             if needs_sensitive(&vault, [name.as_str()])? {
-                ensure_sensitive(&mut vault, &format!("edit {name}"))?;
+                ensure_sensitive(
+                    &mut vault,
+                    &i18n::message("edit {name}", &[("name", &name)]),
+                )?;
             }
             items::edit(&mut vault, &name, &args)?;
         }
         Command::Show { name, reveal } => {
             let r = reference::parse_arg(&name)?;
-            let mut vault = unlock(&path, &format!("show {}", r.name))?;
+            let mut vault = unlock(&path, &i18n::message("show {name}", &[("name", &r.name)]))?;
             if reveal && needs_sensitive(&vault, [r.name])? {
-                ensure_sensitive(&mut vault, &format!("show {}", r.name))?;
+                ensure_sensitive(
+                    &mut vault,
+                    &i18n::message("show {name}", &[("name", &r.name)]),
+                )?;
             }
             items::show(&vault, r.name, reveal)?;
         }
@@ -533,9 +552,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Get { name, copy } => {
             let r = reference::parse_arg(&name)?;
             let shown = r.describe();
-            let mut vault = unlock(&path, &format!("get {shown}"))?;
+            let mut vault = unlock(&path, &i18n::message("get {shown}", &[("shown", &shown)]))?;
             if needs_sensitive(&vault, [r.name])? {
-                ensure_sensitive(&mut vault, &format!("get {shown}"))?;
+                ensure_sensitive(
+                    &mut vault,
+                    &i18n::message("get {shown}", &[("shown", &shown)]),
+                )?;
             }
             let value = vault.resolve(&r, unix_now())?;
             if copy {
@@ -546,7 +568,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Command::Otp { name, copy } => {
             let name = reference::parse_arg(&name)?.name;
-            let vault = unlock(&path, &format!("get a 2FA code for {name}"))?;
+            let vault = unlock(
+                &path,
+                &i18n::message("get a 2FA code for {name}", &[("name", &name)]),
+            )?;
             let secret = items::otp_secret(&vault, name)?;
             let totp = stash_core::otp::Totp::parse(&secret)
                 .with_context(|| format!("{name} isn't a 2FA secret"))?;
@@ -559,7 +584,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 print_secret(code.as_bytes())?;
             }
-            ui::success(&format!("valid for {}s", totp.remaining(now)));
+            ui::success(&i18n::message(
+                "valid for {seconds}s",
+                &[("seconds", &totp.remaining(now))],
+            ));
         }
         Command::Ls { long } => {
             let vault = unlock(&path, "list secret names")?;
@@ -573,9 +601,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
         }
         Command::Rm { name } => {
-            let mut vault = unlock(&path, &format!("remove {name}"))?;
+            let mut vault = unlock(&path, &i18n::message("remove {name}", &[("name", &name)]))?;
             vault.remove(&name)?;
-            eprintln!("Removed {name}");
+            eprintln!("{}", i18n::message("Removed {name}", &[("name", &name)]));
         }
         Command::Run {
             env_files,
@@ -875,36 +903,46 @@ fn run(cli: Cli) -> Result<ExitCode> {
             BrowserAction::Status => browser_cmd::status()?,
         },
         Command::Upgrade => {
-            let password = read_password(&path, "upgrade the vault")?;
+            let password = read_password(&path, i18n::text("upgrade the vault"))?;
             let vault = Vault::open(&path, password.as_bytes())?;
             if vault.upgrade_backup().is_some() {
                 after_password_unlock(&path, &vault);
             } else if !vault.is_current() {
                 return Err(vault.upgrade_error().into());
             } else {
-                eprintln!("Your vault is already in the current format.");
+                eprintln!(
+                    "{}",
+                    i18n::text("Your vault is already in the current format.")
+                );
             }
         }
         Command::Passwd => {
-            let password = read_password(&path, "change the master password")?;
+            let password = read_password(&path, i18n::text("change the master password"))?;
             let mut vault = Vault::open(&path, password.as_bytes())?;
             after_password_unlock(&path, &vault);
             let new = match std::env::var("STASH_NEW_PASSWORD") {
                 Ok(p) => Zeroizing::new(p),
                 Err(_) => {
-                    let first =
-                        Zeroizing::new(rpassword::prompt_password("New master password: ")?);
-                    let second = Zeroizing::new(rpassword::prompt_password(
+                    let first = Zeroizing::new(rpassword::prompt_password(i18n::text(
+                        "New master password: ",
+                    ))?);
+                    let second = Zeroizing::new(rpassword::prompt_password(i18n::text(
                         "Confirm new master password: ",
-                    )?);
+                    ))?);
                     if first != second {
-                        bail!("passwords do not match");
+                        bail!("{}", i18n::text("passwords do not match"));
                     }
                     first
                 }
             };
             if new.chars().count() < MIN_PASSWORD_LEN {
-                bail!("master password must be at least {MIN_PASSWORD_LEN} characters");
+                bail!(
+                    "{}",
+                    i18n::message(
+                        "master password must be at least {MIN_PASSWORD_LEN} characters",
+                        &[("MIN_PASSWORD_LEN", &MIN_PASSWORD_LEN)]
+                    )
+                );
             }
             let old_audit = vault.audit_secret()?;
             let result = vault.rekey(password.as_bytes(), Some(new.as_bytes()));
@@ -915,11 +953,19 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 after_new_keys(&path, &vault, &old_audit);
             }
             result?;
-            eprintln!("Changed the master password and replaced the vault's keys.");
-            eprintln!("Old backups of the vault still open with the password they were made with.");
+            eprintln!(
+                "{}",
+                i18n::text("Changed the master password and replaced the vault's keys.")
+            );
+            eprintln!(
+                "{}",
+                i18n::text(
+                    "Old backups of the vault still open with the password they were made with."
+                )
+            );
         }
         Command::Rekey => {
-            let password = read_password(&path, "replace the vault's keys")?;
+            let password = read_password(&path, i18n::text("replace the vault's keys"))?;
             let mut vault = Vault::open(&path, password.as_bytes())?;
             after_password_unlock(&path, &vault);
             let old_audit = vault.audit_secret()?;
@@ -931,13 +977,16 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 after_new_keys(&path, &vault, &old_audit);
             }
             result?;
-            eprintln!("Replaced the vault's keys and re-encrypted every item.");
+            eprintln!(
+                "{}",
+                i18n::text("Replaced the vault's keys and re-encrypted every item.")
+            );
         }
         Command::Lock => {
             if agent::lock(&agent::default_socket()?) {
-                eprintln!("Locked");
+                eprintln!("{}", i18n::text("Locked"));
             } else {
-                eprintln!("Already locked");
+                eprintln!("{}", i18n::text("Already locked"));
             }
         }
         Command::TouchId { action } => touch_id(action, &path)?,
@@ -984,14 +1033,14 @@ fn touch_id(action: TouchIdAction, path: &Path) -> Result<()> {
             // Always require the master password to turn on a new way in.
             let vault = unlock_with_password(path, "turn on Touch ID")?;
             touchid::enroll(&helper, path, vault.key(), vault.sensitive_key())?;
-            eprintln!("Touch ID unlock is on");
+            eprintln!("{}", i18n::text("Touch ID unlock is on"));
         }
         TouchIdAction::Disable => {
             if touchid::disable(path)? {
                 agent::lock(&agent::default_socket()?);
-                eprintln!("Touch ID unlock is off");
+                eprintln!("{}", i18n::text("Touch ID unlock is off"));
             } else {
-                eprintln!("Touch ID unlock was not on");
+                eprintln!("{}", i18n::text("Touch ID unlock was not on"));
             }
         }
         TouchIdAction::Status => {
@@ -1112,18 +1161,36 @@ fn confirm_fresh(vault: &mut Vault, reason: &str) -> Result<()> {
     if touchid::is_enrolled(&path)
         && let Some(helper) = touchid::helper()
     {
-        match touchid::unlock(&helper, &path, &format!("{reason}, requested by {chain}")) {
+        match touchid::unlock(
+            &helper,
+            &path,
+            &i18n::message(
+                "{reason}, requested by {chain}",
+                &[("reason", &reason), ("chain", &chain)],
+            ),
+        ) {
             Ok(keys) if stash_core::crypto::ct_eq(keys.main.as_ref(), vault.key()) => {
                 return Ok(());
             }
-            Ok(_) => eprintln!("stash: Touch ID data is out of date; run `stash touchid enable`"),
-            Err(touchid::UnlockError::Cancelled) => bail!("Touch ID was cancelled"),
+            Ok(_) => eprintln!(
+                "{}",
+                i18n::text("stash: Touch ID data is out of date; run `stash touchid enable`")
+            ),
+            Err(touchid::UnlockError::Cancelled) => {
+                bail!("{}", i18n::text("Touch ID was cancelled"))
+            }
             Err(touchid::UnlockError::Unavailable(why)) => eprintln!("stash: {why}"),
             Err(touchid::UnlockError::Failed(why)) => eprintln!("stash: Touch ID failed: {why}"),
         }
     }
-    eprintln!("stash: {reason}, requested by {chain}");
-    let password = Zeroizing::new(rpassword::prompt_password("Master password: ")?);
+    eprintln!(
+        "{}",
+        i18n::message(
+            "stash: {reason}, requested by {chain}",
+            &[("reason", &reason), ("chain", &chain)]
+        )
+    );
+    let password = Zeroizing::new(rpassword::prompt_password(i18n::text("Master password: "))?);
     // Checking the password unwraps the sensitive key; keep it only if
     // this command already had it.
     let had = vault.has_sensitive();
@@ -1140,12 +1207,18 @@ fn unlock_with_touch_id(path: &Path, purpose: &str) -> Result<Option<Vault>> {
         return Ok(None);
     }
     let Some(helper) = touchid::helper() else {
-        eprintln!("stash: Touch ID helper not found; using the master password");
+        eprintln!(
+            "{}",
+            i18n::text("stash: Touch ID helper not found; using the master password")
+        );
         return Ok(None);
     };
-    let reason = format!(
-        "unlock your vault for “{purpose}”, requested by {}",
-        procinfo::requester_chain(2)
+    let reason = i18n::message(
+        "unlock your vault for “{purpose}”, requested by {requester}",
+        &[
+            ("purpose", &purpose),
+            ("requester", &procinfo::requester_chain(2)),
+        ],
     );
     let why = match touchid::unlock(&helper, path, &reason) {
         Ok(keys) => match Vault::open_with_key(path, &keys.main) {
@@ -1181,10 +1254,16 @@ fn unlock_with_password(path: &Path, purpose: &str) -> Result<Vault> {
                 return Err(stash_core::Error::VaultMissing(path.to_owned()).into());
             }
             eprintln!(
-                "stash: unlocking for “{purpose}”, requested by {}",
-                procinfo::requester_chain(2)
+                "{}",
+                i18n::message(
+                    "stash: unlocking for “{purpose}”, requested by {requester}",
+                    &[
+                        ("purpose", &purpose),
+                        ("requester", &procinfo::requester_chain(2))
+                    ]
+                )
             );
-            Zeroizing::new(rpassword::prompt_password("Master password: ")?)
+            Zeroizing::new(rpassword::prompt_password(i18n::text("Master password: "))?)
         }
     };
     let vault = Vault::open(path, password.as_bytes())?;
@@ -1282,9 +1361,12 @@ pub(crate) fn ensure_sensitive(vault: &mut Vault, purpose: &str) -> Result<()> {
     if touchid::is_enrolled(&path)
         && let Some(helper) = touchid::helper()
     {
-        let reason = format!(
-            "use a card, bank account, or SSH key for “{purpose}”, requested by {}",
-            procinfo::requester_chain(2)
+        let reason = i18n::message(
+            "use a card, bank account, or SSH key for “{purpose}”, requested by {requester}",
+            &[
+                ("purpose", &purpose),
+                ("requester", &procinfo::requester_chain(2)),
+            ],
         );
         match touchid::unlock(&helper, &path, &reason) {
             Ok(keys) => match keys.sensitive {
@@ -1292,22 +1374,35 @@ pub(crate) fn ensure_sensitive(vault: &mut Vault, purpose: &str) -> Result<()> {
                     if vault.unlock_sensitive_with_key(&sensitive).is_ok() {
                         return Ok(());
                     }
-                    eprintln!("stash: Touch ID data is out of date; run `stash touchid enable`");
+                    eprintln!(
+                        "{}",
+                        i18n::text(
+                            "stash: Touch ID data is out of date; run `stash touchid enable`"
+                        )
+                    );
                 }
                 None => eprintln!(
                     "stash: Touch ID was set up before this vault format; run `stash touchid enable` to use it here"
                 ),
             },
-            Err(touchid::UnlockError::Cancelled) => bail!("Touch ID was cancelled"),
+            Err(touchid::UnlockError::Cancelled) => {
+                bail!("{}", i18n::text("Touch ID was cancelled"))
+            }
             Err(touchid::UnlockError::Unavailable(why)) => eprintln!("stash: {why}"),
             Err(touchid::UnlockError::Failed(why)) => eprintln!("stash: Touch ID failed: {why}"),
         }
     }
     eprintln!(
-        "stash: “{purpose}” uses a card, bank account, or SSH key, requested by {}",
-        procinfo::requester_chain(2)
+        "{}",
+        i18n::message(
+            "stash: “{purpose}” uses a card, bank account, or SSH key, requested by {requester}",
+            &[
+                ("purpose", &purpose),
+                ("requester", &procinfo::requester_chain(2))
+            ]
+        )
     );
-    let password = Zeroizing::new(rpassword::prompt_password("Master password: ")?);
+    let password = Zeroizing::new(rpassword::prompt_password(i18n::text("Master password: "))?);
     Ok(vault.unlock_sensitive(password.as_bytes())?)
 }
 
@@ -1320,12 +1415,18 @@ fn read_password(path: &Path, purpose: &str) -> Result<Zeroizing<String>> {
         return Err(stash_core::Error::VaultMissing(path.to_owned()).into());
     }
     eprintln!(
-        "stash: “{purpose}” needs your master password, requested by {}",
-        procinfo::requester_chain(2)
+        "{}",
+        i18n::message(
+            "stash: “{purpose}” needs your master password, requested by {requester}",
+            &[
+                ("purpose", &purpose),
+                ("requester", &procinfo::requester_chain(2))
+            ]
+        )
     );
-    Ok(Zeroizing::new(rpassword::prompt_password(
+    Ok(Zeroizing::new(rpassword::prompt_password(i18n::text(
         "Master password: ",
-    )?))
+    ))?))
 }
 
 fn session_timeout() -> Result<Option<Duration>> {
@@ -1345,16 +1446,26 @@ fn new_password() -> Result<Zeroizing<String>> {
     let password = match std::env::var(PASSWORD_ENV) {
         Ok(password) => Zeroizing::new(password),
         Err(_) => {
-            let first = Zeroizing::new(rpassword::prompt_password("New master password: ")?);
-            let second = Zeroizing::new(rpassword::prompt_password("Confirm master password: ")?);
+            let first = Zeroizing::new(rpassword::prompt_password(i18n::text(
+                "New master password: ",
+            ))?);
+            let second = Zeroizing::new(rpassword::prompt_password(i18n::text(
+                "Confirm master password: ",
+            ))?);
             if first != second {
-                bail!("passwords do not match");
+                bail!("{}", i18n::text("passwords do not match"));
             }
             first
         }
     };
     if password.chars().count() < MIN_PASSWORD_LEN {
-        bail!("master password must be at least {MIN_PASSWORD_LEN} characters");
+        bail!(
+            "{}",
+            i18n::message(
+                "master password must be at least {MIN_PASSWORD_LEN} characters",
+                &[("MIN_PASSWORD_LEN", &MIN_PASSWORD_LEN)]
+            )
+        );
     }
     Ok(password)
 }
@@ -1362,7 +1473,7 @@ fn new_password() -> Result<Zeroizing<String>> {
 /// Prompt without echo on a terminal; otherwise read all of stdin, dropping
 /// one trailing newline so `echo token | stash add name` stores `token`.
 fn read_value(name: &str) -> Result<Zeroizing<Vec<u8>>> {
-    read_input(&format!("Value for {name}: "))
+    read_input(&i18n::message("Value for {name}: ", &[("name", &name)]))
 }
 
 pub(crate) fn stdin_is_terminal() -> bool {
@@ -1380,9 +1491,9 @@ pub(crate) fn unix_now() -> u64 {
 pub(crate) fn read_input(prompt: &str) -> Result<Zeroizing<Vec<u8>>> {
     let stdin = io::stdin();
     if stdin.is_terminal() {
-        let value = Zeroizing::new(rpassword::prompt_password(prompt)?);
+        let value = Zeroizing::new(rpassword::prompt_password(i18n::text(prompt))?);
         if value.is_empty() {
-            bail!("value is empty");
+            bail!("{}", i18n::text("value is empty"));
         }
         return Ok(Zeroizing::new(value.as_bytes().to_vec()));
     }
@@ -1395,7 +1506,7 @@ pub(crate) fn read_input(prompt: &str) -> Result<Zeroizing<Vec<u8>>> {
         }
     }
     if value.is_empty() {
-        bail!("value is empty");
+        bail!("{}", i18n::text("value is empty"));
     }
     Ok(value)
 }
