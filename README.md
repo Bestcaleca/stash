@@ -114,6 +114,14 @@ How unlocking works:
 | `STASH_SESSION_TIMEOUT` | How many seconds a session lasts without use. `0` turns sessions off |
 | `STASH_PASSWORD` | Supply the master password for scripts and CI. This skips Touch ID and sessions. Any process that can read your environment can read it, so avoid it on your own machine |
 
+### Language
+
+stash ships in English and Simplified Chinese. The Mac and iPhone apps use the
+app's system language, and the browser extension uses the browser's language.
+The CLI reads STASH_LANG, LC_ALL, LC_MESSAGES, and LANG in that order. Set
+`STASH_LANG=zh-CN stash --help` to try Chinese, or `STASH_LANG=en` to use English.
+Other languages fall back to English. Technical diagnostics may appear in English.
+
 ## Why
 
 1Password is great for developers: the `op` CLI, `op run`, `op://` secret references, Touch ID unlock, and the SSH agent make handling API tokens painless. But it's a paid subscription.
