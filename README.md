@@ -42,6 +42,7 @@ open ~/Applications/stash.app
 ```
 
 - **Vault browser.** Search logins, secrets, notes, cards, bank accounts, and SSH keys, with copy buttons for every field and live 2FA codes with a countdown. Cards get a card face showing only the last four digits.
+- **Groups.** Create groups in the sidebar, then assign items in the editor or with **Move…**. **All Items** searches across groups. Existing items start in **Personal**, the default group. Rename it to suit you. Deleting a custom group moves its items to the default group.
 - **Quick Access** with **⇧⌘Space** from anywhere. Type a few letters, press Return, and the password is on your clipboard.
 - **Menu bar icon.** Quick Access, lock and unlock, open stash.
 - **Set up 2FA from the QR code.** In a login's Two-factor field, choose **Scan QR**: stash reads the code straight off your screen, even from a window behind stash. You can also paste or drop a screenshot. It fills in the item's name and username from the code.
@@ -49,6 +50,10 @@ open ~/Applications/stash.app
 - **Touch ID unlock** and a built-in **password generator**. The app locks itself after 10 idle minutes.
 - **Safer copies.** They're marked concealed, so clipboard-history apps skip them. They stay on this Mac (no Universal Clipboard) and are cleared after 30 seconds.
 - **The same vault as the CLI.** Everything you add in the app works with `stash run`, `stash inject`, and the MCP server, and the other way round.
+
+The first group change saves the encrypted group catalog in vault format 4.
+Use a group-aware stash CLI or browser host to open that vault. Phone exports
+are independent vaults containing the selected items.
 
 Building needs Rust and the free Xcode Command Line Tools (`xcode-select --install`), not Xcode. The app is ad-hoc signed. If you build it yourself, macOS opens it normally.
 

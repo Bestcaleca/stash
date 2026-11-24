@@ -27,6 +27,8 @@ struct ItemEditorView: View {
 
     @ViewState private var kind: ItemKind = .login
     @ViewState private var name = ""
+    @ViewState private var groupID = VaultGroup.personal.id
+    @ViewState private var initialGroupID = VaultGroup.personal.id
     @ViewState private var username = ""
     @ViewState private var website = ""
     @ViewState private var secret = ""
@@ -95,6 +97,9 @@ struct ItemEditorView: View {
                                 FieldBox {
                                     TextField("", text: $name, prompt: Text(namePlaceholder).foregroundStyle(Color.inkTertiary))
                                 }
+                            }
+                            LabeledInput("Group") {
+                                GroupPicker(selection: $groupID)
                             }
                             if kind == .login {
                                 LabeledInput("Username") {
@@ -528,10 +533,13 @@ struct ItemEditorView: View {
 
     private func load() {
         model.error = nil
+        defer { initialGroupID = groupID }
         switch target {
         case .choose(let k), .new(let k):
             kind = k
+            groupID = model.suggestedGroupID
         case .edit(let d):
+            groupID = model.items.first { $0.name == d.name }?.groupID ?? VaultGroup.personal.id
             kind = d.kind
             name = d.name
             hadNotes = d.hasNotes
@@ -619,7 +627,8 @@ struct ItemEditorView: View {
             originalName: original?.name,
             kind: kind,
             fields: fields,
-            notes: (notesLoaded || !hadNotes) ? notes : nil)
+            notes: (notesLoaded || !hadNotes) ? notes : nil,
+            groupID: isNew || groupID != initialGroupID ? groupID : nil)
         if await model.save(request) {
             secret = ""
             otp = ""
@@ -702,12 +711,12 @@ struct ItemEditorView: View {
             }
             let passphrase = sshPassphrase.isEmpty ? nil : sshPassphrase
             result = await model.addSSHKey(name: trimmed) {
-                try await $0.sshImport(name: trimmed, key: text, passphrase: passphrase)
+                try await $0.sshImport(name: trimmed, key: text, passphrase: passphrase, groupID: groupID)
             }
         } else {
             let comment = sshComment.trimmingCharacters(in: .whitespaces)
             result = await model.addSSHKey(name: trimmed) {
-                try await $0.sshGenerate(name: trimmed, comment: comment.isEmpty ? nil : comment)
+                try await $0.sshGenerate(name: trimmed, comment: comment.isEmpty ? nil : comment, groupID: groupID)
             }
         }
         if result.needsPassphrase {

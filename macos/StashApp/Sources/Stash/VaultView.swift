@@ -13,6 +13,7 @@ enum VaultLayout {
 /// The main window: sidebar, item table, and an inspector for the selection.
 struct VaultView: View {
     @EnvironmentObject var model: AppModel
+    @State private var groupEditor: GroupEditorTarget?
 
     var body: some View {
         GeometryReader { geo in
@@ -27,12 +28,12 @@ struct VaultView: View {
             ZStack(alignment: .trailing) {
                 HStack(spacing: 0) {
                     if showSidebar {
-                        Sidebar()
+                        Sidebar(presentGroupEditor: { groupEditor = $0 })
                             .frame(width: VaultLayout.sidebar)
                             .transition(.move(edge: .leading))
                         Rectangle().fill(Color.line).frame(width: 1)
                     }
-                    ItemsPane()
+                    ItemsPane(moveItem: { groupEditor = .move($0) })
                         .frame(minWidth: VaultLayout.itemsMin, maxWidth: .infinity)
                     if docked, let detail = model.detail {
                         Rectangle().fill(Color.line).frame(width: 1)
@@ -51,6 +52,7 @@ struct VaultView: View {
         .background(Color.canvas)
         .animation(.easeOut(duration: 0.18), value: model.detail?.name)
         .sheet(item: $model.importFile) { ImportView(file: $0) }
+        .sheet(item: $groupEditor) { GroupEditor(target: $0) }
         .sheet(item: $model.editor) { target in
             if case .choose(let suggested) = target {
                 NewItemFlow(suggested: suggested)
@@ -82,6 +84,7 @@ extension VaultView {
 
 struct Sidebar: View {
     @EnvironmentObject var model: AppModel
+    let presentGroupEditor: (GroupEditorTarget) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -95,8 +98,12 @@ struct Sidebar: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    SidebarSection(title: String(localized: "Vault")) {
-                        row(.all, "tray.full")
+                    SidebarRow(symbol: "tray.full", title: AppModel.Filter.all.title,
+                               count: model.items.count, selected: model.selectedGroupID == nil && model.filter == .all) {
+                        model.selectGroup(nil)
+                    }
+                    GroupSidebar(present: presentGroupEditor)
+                    SidebarSection(title: String(localized: "Item Types")) {
                         row(.kind(.login), ItemKind.login.symbol)
                         row(.kind(.secret), ItemKind.secret.symbol)
                         row(.kind(.note), ItemKind.note.symbol)
@@ -181,6 +188,7 @@ struct SidebarRow: View {
     let title: String
     let count: Int
     let selected: Bool
+    var isDefault = false
     let action: () -> Void
     @ViewState private var hovering = false
 
@@ -195,7 +203,13 @@ struct SidebarRow: View {
                     .font(.plex(13, weight: selected ? .semibold : .regular))
                     .foregroundStyle(Color.ink)
                     .lineLimit(1)
-                Spacer()
+                Spacer(minLength: 2)
+                if isDefault {
+                    Text("Default")
+                        .font(.plex(10))
+                        .foregroundStyle(Color.inkTertiary)
+                        .fixedSize()
+                }
                 Text("\(count)")
                     .font(.mono(11.5))
                     .foregroundStyle(Color.inkTertiary)
@@ -216,6 +230,7 @@ struct SidebarRow: View {
 
 struct ItemsPane: View {
     @EnvironmentObject var model: AppModel
+    let moveItem: (ItemSummary) -> Void
     /// Measured on the pane itself (sized by the window), not the table,
     /// whose content would otherwise feed back into its own width.
     @ViewState private var width: CGFloat = 1000
@@ -223,7 +238,9 @@ struct ItemsPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text(model.filter.title)
+                Text(model.scopeTitle)
+                    .lineLimit(1)
+                    .help(model.scopeTitle)
                     .font(.plex(24, weight: .semibold))
                     .foregroundStyle(Color.ink)
                 Spacer()
@@ -253,7 +270,7 @@ struct ItemsPane: View {
                             .font(.plex(13))
                             .foregroundStyle(Color.inkSecondary)
                             .fixedSize()
-                        SearchField(prompt: String(localized: "Search \(model.filter.title.lowercased())"), text: $model.search)
+                        SearchField(prompt: model.searchPrompt, text: $model.search)
                             .frame(maxWidth: 300)
                         Spacer()
                         Menu {
@@ -275,7 +292,7 @@ struct ItemsPane: View {
                     .padding(.vertical, 12)
 
                     // 28pt page padding on each side, plus the card's border.
-                    ItemTable(columns: Columns(width: width - 58))
+                    ItemTable(columns: Columns(width: width - 58), moveItem: moveItem)
                 }
             }
             .padding(.horizontal, 28)
@@ -293,8 +310,10 @@ struct ItemsPane: View {
 
 /// Column widths, shared by the header and the rows.
 private enum Col {
-    static let user: CGFloat = 180
+    static let user: CGFloat = 150
     static let site: CGFloat = 170
+    static let group: CGFloat = 84
+    static let move: CGFloat = 48
     static let otp: CGFloat = 36
     static let updated: CGFloat = 76
 }
@@ -308,15 +327,16 @@ struct Columns: Equatable {
     var updated = true
 
     init(width: CGFloat) {
-        site = width >= 782
-        updated = width >= 600
-        details = width >= 512
+        site = width >= 885
+        updated = width >= 700
+        details = width >= 600
     }
 }
 
 struct ItemTable: View {
     @EnvironmentObject var model: AppModel
     let columns: Columns
+    let moveItem: (ItemSummary) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -324,8 +344,10 @@ struct ItemTable: View {
                 Eyebrow(text: String(localized: "Name")).frame(maxWidth: .infinity, alignment: .leading)
                 if columns.details { Eyebrow(text: String(localized: "Details")).frame(width: Col.user, alignment: .leading) }
                 if columns.site { Eyebrow(text: String(localized: "Website")).frame(width: Col.site, alignment: .leading) }
+                Eyebrow(text: String(localized: "Group")).frame(width: Col.group, alignment: .leading)
                 Eyebrow(text: String(localized: "2FA")).frame(width: Col.otp, alignment: .center)
                 if columns.updated { Eyebrow(text: String(localized: "Updated")).frame(width: Col.updated, alignment: .trailing) }
+                Color.clear.frame(width: Col.move, height: 1).accessibilityHidden(true)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
@@ -333,12 +355,12 @@ struct ItemTable: View {
             .overlay(alignment: .top) { Rectangle().fill(Color.line).frame(height: 1) }
             .overlay(alignment: .bottom) { Rectangle().fill(Color.line).frame(height: 1) }
 
-            if model.items.isEmpty {
+            if model.items.isEmpty && model.selectedGroupID == nil {
                 EmptyVault(create: { model.editor = .choose(model.suggestedKind) },
                            importFile: { model.chooseImportFile() })
                     .frame(maxWidth: .infinity, minHeight: 280)
             } else if model.filtered.isEmpty {
-                Text("No items match “\(model.search)”")
+                Text(model.search.isEmpty ? "No items here yet." : "No items match “\(model.search)”")
                     .font(.plex(13))
                     .foregroundStyle(Color.inkTertiary)
                     .frame(maxWidth: .infinity, minHeight: 160)
@@ -346,7 +368,9 @@ struct ItemTable: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.filtered) { item in
-                            ItemTableRow(item: item, selected: model.selection == item.id, columns: columns)
+                            ItemTableRow(item: item, selected: model.selection == item.id, columns: columns) {
+                                moveItem(item)
+                            }
                                 .onTapGesture { Task { await model.select(model.selection == item.id ? nil : item.id) } }
                             Rectangle().fill(Color.line.opacity(0.6)).frame(height: 1).padding(.leading, 53)
                         }
@@ -364,6 +388,7 @@ struct ItemTableRow: View {
     let item: ItemSummary
     let selected: Bool
     let columns: Columns
+    let moveItem: () -> Void
     @ViewState private var hovering = false
 
     var body: some View {
@@ -401,6 +426,12 @@ struct ItemTableRow: View {
                     .truncationMode(.middle)
                     .frame(width: Col.site, alignment: .leading)
             }
+            Text(model.groupTitle(item.groupID))
+                .font(.plex(12))
+                .foregroundStyle(Color.inkSecondary)
+                .lineLimit(1)
+                .frame(width: Col.group, alignment: .leading)
+                .help(model.groupTitle(item.groupID))
             Group {
                 if item.hasOtp {
                     Image(systemName: "checkmark.circle.fill")
@@ -420,6 +451,12 @@ struct ItemTableRow: View {
                     .lineLimit(1)
                     .frame(width: Col.updated, alignment: .trailing)
             }
+            Button("Move…", action: moveItem)
+                .buttonStyle(.plain)
+                .font(.plex(12))
+                .foregroundStyle(Color.amberText)
+                .frame(width: Col.move, alignment: .trailing)
+                .accessibilityLabel(Text("Move \(item.title) to a group"))
         }
         .padding(.horizontal, 16)
         .frame(height: 44)

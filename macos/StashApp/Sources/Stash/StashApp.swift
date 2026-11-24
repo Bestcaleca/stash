@@ -255,13 +255,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         check(m.filter == .kind(.ssh), "editing never moves you")
 
         m = await fresh(.kind(.login))
-        _ = await m.addSSHKey(name: "ssh/new") { try await $0.sshGenerate(name: "ssh/new", comment: nil) }
+        _ = await m.addSSHKey(name: "ssh/new") { try await $0.sshGenerate(name: "ssh/new", comment: nil, groupID: nil) }
         check(m.filter == .kind(.ssh), "an SSH key made in Logins goes to SSH Keys")
+
+        m = await fresh(.all)
+        let madeGroup = await m.createGroup("公司")
+        let company = m.selectedGroupID
+        check(madeGroup && company != nil && m.filtered.isEmpty, "a new group opens as an empty group")
+        var account = login("工作/账号")
+        account.groupID = m.suggestedGroupID
+        _ = await m.save(account)
+        m.filter = .kind(.login)
+        m.search = "账号"
+        check(m.filtered.map(\.name) == ["工作/账号"], "group, item type, and search combine")
+        m.selectGroup(nil)
+        check(m.filtered.contains { $0.groupID == VaultGroup.personal.id }
+              && m.filtered.contains { $0.name == "工作/账号" }, "All Items includes every group")
+        if let company {
+            m.selectGroup(company)
+            let removed = await m.deleteGroup(company)
+            check(removed && m.selectedGroupID == nil
+                  && m.filtered.first { $0.name == "工作/账号" }?.groupID == VaultGroup.personal.id,
+                  "deleting the active group returns to All Items and keeps its items")
+        }
 
         // With the inspector open at the default window size, the table is
         // 608pt wide: it must still say which account or card each row is.
         let inspectorOpen = Columns(width: 608)
-        check(inspectorOpen.details && inspectorOpen.updated && !inspectorOpen.site, "the list keeps its details with the inspector open")
+        check(inspectorOpen.details && !inspectorOpen.updated && !inspectorOpen.site, "the list keeps its details with the inspector open")
         check(!Columns(width: 442).details, "the narrowest list keeps room for the name")
         check(Columns(width: 900).site, "a wide list shows every column")
 
@@ -335,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .init(label: "website", kind: .url, value: "https://github.com"),
                 .init(label: "one-time password", kind: .otp, value: "JBSWY3DPEHPK3PXP"),
             ], notes: "recovery codes"))
-            let items = try await b.list()
+            let items = try await b.list().items
             say("list: \(items.map { "\($0.name)[\($0.kind.rawValue) otp=\($0.hasOtp)]" })")
             let d = try await b.item("selftest/github")
             say("item fields: \(d.fields.map { "\($0.label)=\($0.value ?? "<hidden>")" }) notes=\(d.hasNotes)")
@@ -347,6 +368,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .init(label: "password", kind: .concealed, value: nil),
             ], notes: nil))
             say("after edit, password kept: \(try await b.reveal("selftest/github", field: "password"))")
+            let group = try await b.createGroup("公司")
+            try await b.renameGroup(group.id, to: "工作")
+            try await b.moveItem("selftest/github", to: group.id)
+            let grouped = try await b.list()
+            guard grouped.groups?.contains(where: { $0.id == group.id && $0.title == "工作" }) == true,
+                  grouped.items.first(where: { $0.name == "selftest/github" })?.groupID == group.id,
+                  try await b.deleteGroup(group.id) == 1,
+                  try await b.list().items.first(where: { $0.name == "selftest/github" })?.groupID == VaultGroup.personal.id
+            else { throw BackendError(code: -1, message: "group round-trip failed") }
+            say("groups: rename, move, and delete with fallback ok")
             say("generate: \(try await b.generate(length: 20, symbols: false).count) chars")
             try await b.delete("selftest/github")
             s = try await b.status()

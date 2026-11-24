@@ -55,6 +55,20 @@ struct VaultStatus: Decodable {
     var needsUpgrade: Bool
 }
 
+struct VaultGroup: Decodable, Identifiable, Hashable {
+    static let personal = VaultGroup(id: 0, name: nil)
+
+    let id: UInt64
+    var name: String?
+    var isDefault: Bool { id == Self.personal.id }
+    var title: String { name ?? String(localized: "Personal") }
+}
+
+struct VaultListing: Decodable {
+    let items: [ItemSummary]
+    let groups: [VaultGroup]?
+}
+
 struct ItemSummary: Decodable, Identifiable, Hashable {
     var name: String
     var kind: ItemKind
@@ -64,6 +78,8 @@ struct ItemSummary: Decodable, Identifiable, Hashable {
     var updated: Int
     /// Cards and bank accounts: "Visa •••• 4242 · 08/27".
     var subtitle: String? = nil
+    var groupId: VaultGroup.ID? = nil
+    var groupID: VaultGroup.ID { groupId ?? VaultGroup.personal.id }
     var id: String { name }
 
     /// The last path segment, for display ("work/github" → "github").
@@ -128,6 +144,8 @@ struct SaveRequest {
     var fields: [SaveField]
     /// `nil` keeps the stored notes.
     var notes: String?
+    /// An omitted group keeps the current membership of an existing item.
+    var groupID: VaultGroup.ID? = nil
 
     var params: [String: Any] {
         var p: [String: Any] = [
@@ -141,6 +159,7 @@ struct SaveRequest {
         ]
         if let originalName { p["original_name"] = originalName }
         if let notes { p["notes"] = notes }
+        if let groupID { p["group_id"] = groupID }
         return p
     }
 }

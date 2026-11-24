@@ -8,6 +8,8 @@ final class AppModel: ObservableObject {
     @Published var screen: Screen = .starting
     @Published var status: VaultStatus?
     @Published var items: [ItemSummary] = []
+    @Published private(set) var groups: [VaultGroup] = [.personal]
+    @Published private(set) var selectedGroupID: VaultGroup.ID?
     @Published var selection: ItemSummary.ID?
     @Published var detail: ItemDetail?
     @Published var search = ""
@@ -62,16 +64,50 @@ final class AppModel: ObservableObject {
         if case .kind(let k) = filter { k } else { .login }
     }
 
-    func count(_ filter: Filter) -> Int { items.filter { matches($0, filter) }.count }
+    private var scopedItems: [ItemSummary] {
+        guard let selectedGroupID else { return items }
+        return items.filter { $0.groupID == selectedGroupID }
+    }
+
+    var scopeTitle: String {
+        guard let selectedGroupID else { return filter.title }
+        let group = groupTitle(selectedGroupID)
+        return filter == .all ? group : "\(group) · \(filter.title)"
+    }
+
+    var searchPrompt: String {
+        if let selectedGroupID {
+            return String(localized: "Search in \(groupTitle(selectedGroupID))")
+        }
+        return String(localized: "Search \(filter.title.lowercased())")
+    }
+
+    var suggestedGroupID: VaultGroup.ID { selectedGroupID ?? VaultGroup.personal.id }
+
+    func groupTitle(_ id: VaultGroup.ID) -> String {
+        groups.first { $0.id == id }?.title ?? VaultGroup.personal.title
+    }
+
+    func count(_ filter: Filter) -> Int { scopedItems.filter { matches($0, filter) }.count }
+
+    func count(inGroup id: VaultGroup.ID) -> Int { items.filter { $0.groupID == id }.count }
+
+    func selectGroup(_ id: VaultGroup.ID?) {
+        selectedGroupID = id
+        filter = .all
+        search = ""
+        selection = nil
+        detail = nil
+    }
 
     /// Top-level folders, from names like `work/github`.
     var folders: [String] {
-        Array(Set(items.compactMap { $0.folder?.split(separator: "/").first.map(String.init) })).sorted()
+        Array(Set(scopedItems.compactMap { $0.folder?.split(separator: "/").first.map(String.init) })).sorted()
     }
 
     var filtered: [ItemSummary] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        let shown = items.filter { matches($0, filter) }.filter {
+        let shown = scopedItems.filter { matches($0, filter) }.filter {
             q.isEmpty
                 || $0.name.lowercased().contains(q)
                 || ($0.username?.lowercased().contains(q) ?? false)
@@ -131,8 +167,8 @@ final class AppModel: ObservableObject {
 
     private func becameLocked() {
         items = []
-        detail = nil
-        selection = nil
+        groups = [.personal]
+        selectGroup(nil)
         screen = .locked
     }
 
@@ -172,15 +208,70 @@ final class AppModel: ObservableObject {
 
     // MARK: - Items
 
+    private func refreshListing() async throws {
+        let listing = try await backend?.list()
+        items = listing?.items ?? []
+        groups = listing?.groups ?? [.personal]
+        if let selectedGroupID, !groups.contains(where: { $0.id == selectedGroupID }) {
+            selectGroup(nil)
+        }
+        if let selection, !scopedItems.contains(where: { $0.id == selection }) {
+            self.selection = nil
+            detail = nil
+        }
+    }
+
     func reload() async {
         await run {
-            items = try await backend?.list() ?? []
-            if let selection, items.contains(where: { $0.id == selection }) {
-                await select(selection)
-            } else {
-                detail = nil
+            try await refreshListing()
+            if let selection {
+                detail = try await backend?.item(selection)
             }
         }
+    }
+
+    // MARK: - Groups
+
+    private func updateGroups<T>(_ update: (VaultBackend) async throws -> T) async -> T? {
+        var result: T?
+        await run {
+            guard let backend else { return }
+            result = try await update(backend)
+            try await refreshListing()
+        }
+        if result != nil, let error { flash(error) }
+        return result
+    }
+
+    func createGroup(_ name: String) async -> Bool {
+        guard let group = await updateGroups({ try await $0.createGroup(name) }) else { return false }
+        if groups.contains(where: { $0.id == group.id }) { selectGroup(group.id) }
+        return true
+    }
+
+    func renameGroup(_ id: VaultGroup.ID, to name: String) async -> Bool {
+        await updateGroups { try await $0.renameGroup(id, to: name) } != nil
+    }
+
+    func deleteGroup(_ id: VaultGroup.ID) async -> Bool {
+        guard let moved = await updateGroups({ try await $0.deleteGroup(id) }) else { return false }
+        if error == nil {
+            let destination = groupTitle(VaultGroup.personal.id)
+            if moved == 1 {
+                flash(String(localized: "Group deleted. One item moved to \(destination)."))
+            } else if moved > 1 {
+                flash(String(localized: "Group deleted. \(moved) items moved to \(destination)."))
+            } else {
+                flash(String(localized: "Group deleted."))
+            }
+        }
+        return true
+    }
+
+    func moveItem(_ name: String, to group: VaultGroup.ID) async -> Bool {
+        guard await updateGroups({ try await $0.moveItem(name, to: group) }) != nil else { return false }
+        if error == nil { flash(String(localized: "Moved to \(groupTitle(group))")) }
+        return true
     }
 
     func select(_ name: String?) async {
@@ -245,7 +336,11 @@ final class AppModel: ObservableObject {
             ok = true
             await reload()
             if request.originalName == nil { showCreated(request.name) }
-            await select(request.name)
+            if scopedItems.contains(where: { $0.name == request.name }) {
+                await select(request.name)
+            } else {
+                await select(nil)
+            }
         }
         return ok
     }
@@ -288,9 +383,13 @@ final class AppModel: ObservableObject {
     func showCreated(_ name: String) {
         guard let item = items.first(where: { $0.name == name }) else { return }
         var movedTo: String?
+        if let selectedGroupID, selectedGroupID != item.groupID {
+            self.selectedGroupID = item.groupID
+            movedTo = groupTitle(item.groupID)
+        }
         if !matches(item, filter) {
             filter = .kind(item.kind)
-            movedTo = filter.title
+            movedTo = scopeTitle
         }
         if !search.isEmpty && !filtered.contains(where: { $0.name == name }) {
             search = ""
@@ -309,9 +408,8 @@ final class AppModel: ObservableObject {
             await reload()
             // A category, folder, or search could hide what came in: show
             // everything instead.
-            if let result, !result.added.isEmpty, filter != .all || !search.isEmpty {
-                filter = .all
-                search = ""
+            if let result, !result.added.isEmpty, selectedGroupID != nil || filter != .all || !search.isEmpty {
+                selectGroup(nil)
             }
         }
         return result
@@ -327,6 +425,8 @@ final class AppModel: ObservableObject {
 /// Sample data for snapshots and SwiftUI previews. Nothing here is real.
 final class MockBackend: VaultBackend {
     var locked: Bool
+    private var groups: [VaultGroup] = [.personal]
+    private var nextGroupID: VaultGroup.ID = 1
     var items: [ItemSummary] = {
         let now = Int(Date().timeIntervalSince1970)
         return [
@@ -371,7 +471,34 @@ final class MockBackend: VaultBackend {
         locked = false
     }
     func lock() async throws { locked = true }
-    func list() async throws -> [ItemSummary] { items }
+    func list() async throws -> VaultListing { VaultListing(items: items, groups: groups) }
+    func createGroup(_ name: String) async throws -> VaultGroup {
+        let group = VaultGroup(id: nextGroupID, name: name)
+        nextGroupID += 1
+        groups.append(group)
+        return group
+    }
+    func renameGroup(_ id: VaultGroup.ID, to name: String) async throws {
+        guard let index = groups.firstIndex(where: { $0.id == id }) else {
+            throw BackendError(code: -32011, message: "Group not found")
+        }
+        groups[index].name = name
+    }
+    func deleteGroup(_ id: VaultGroup.ID) async throws -> Int {
+        guard id != VaultGroup.personal.id else {
+            throw BackendError(code: -32012, message: "The default group cannot be deleted.")
+        }
+        groups.removeAll { $0.id == id }
+        let moved = items.indices.filter { items[$0].groupID == id }
+        for index in moved { items[index].groupId = nil }
+        return moved.count
+    }
+    func moveItem(_ name: String, to group: VaultGroup.ID) async throws {
+        guard let index = items.firstIndex(where: { $0.name == name }) else {
+            throw BackendError(code: -32002, message: "Item not found")
+        }
+        items[index].groupId = group
+    }
     func item(_ name: String) async throws -> ItemDetail {
         let summary = items.first { $0.name == name }!
         var fields: [FieldInfo] = []
@@ -429,18 +556,20 @@ final class MockBackend: VaultBackend {
     func save(_ request: SaveRequest) async throws {
         // Enough for the app's flows to work on sample data.
         let value = { (label: String) in request.fields.first { $0.label == label }?.value ?? nil }
+        let old = items.first { $0.name == request.originalName }
         let summary = ItemSummary(name: request.name, kind: request.kind, username: value("username"),
-                                  url: value("website"), hasOtp: false, updated: Int(Date().timeIntervalSince1970))
+                                  url: value("website"), hasOtp: false, updated: Int(Date().timeIntervalSince1970),
+                                  groupId: request.groupID ?? old?.groupID)
         items.removeAll { $0.name == (request.originalName ?? request.name) }
         items.append(summary)
     }
     func delete(_ name: String) async throws {}
     func generate(length: Int, symbols: Bool) async throws -> String { "q7#Vd!xP2m@Kz9&Lw4$Rt8" }
     func enableTouchID(password: String) async throws {}
-    func sshGenerate(name: String, comment: String?) async throws -> SSHKeyInfo {
+    func sshGenerate(name: String, comment: String?, groupID: VaultGroup.ID?) async throws -> SSHKeyInfo {
         if !items.contains(where: { $0.name == name }) {
             items.append(.init(name: name, kind: .ssh, username: nil, url: nil, hasOtp: false,
-                               updated: Int(Date().timeIntervalSince1970)))
+                               updated: Int(Date().timeIntervalSince1970), groupId: groupID))
         }
         return .init(publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO60iQ4pgY5/xWYrWhdrOrpEvKYcKJnSet59LRMQ1vFq \(comment ?? name)",
               fingerprint: "SHA256:2OdYwq/ygWHlId1JmNr04FYAgHKLr7ntZGcoJfk2lDY")
@@ -469,7 +598,7 @@ final class MockBackend: VaultBackend {
         }
         return .init(added: chosen.map(\.kind), same: 0, renamed: [], failed: [])
     }
-    func sshImport(name: String, key: String, passphrase: String?) async throws -> SSHKeyInfo {
-        try await sshGenerate(name: name, comment: nil)
+    func sshImport(name: String, key: String, passphrase: String?, groupID: VaultGroup.ID?) async throws -> SSHKeyInfo {
+        try await sshGenerate(name: name, comment: nil, groupID: groupID)
     }
 }

@@ -13,6 +13,10 @@ struct BackendError: LocalizedError {
         case -32001: String(localized: "stash is locked")
         case -32003: String(localized: "wrong master password (or the vault's header was modified)")
         case -32004: String(localized: "Touch ID was cancelled")
+        case -32009: String(localized: "Enter a group name of up to 128 characters without line breaks.")
+        case -32010: String(localized: "A group with this name already exists.")
+        case -32011: String(localized: "That group no longer exists.")
+        case -32012: String(localized: "The default group cannot be deleted.")
         default: message
         }
     }
@@ -36,7 +40,11 @@ protocol VaultBackend: AnyObject {
     func unlock(password: String) async throws
     func unlockWithTouchID() async throws
     func lock() async throws
-    func list() async throws -> [ItemSummary]
+    func list() async throws -> VaultListing
+    func createGroup(_ name: String) async throws -> VaultGroup
+    func renameGroup(_ id: VaultGroup.ID, to name: String) async throws
+    func deleteGroup(_ id: VaultGroup.ID) async throws -> Int
+    func moveItem(_ name: String, to group: VaultGroup.ID) async throws
     func item(_ name: String) async throws -> ItemDetail
     func reveal(_ name: String, field: String) async throws -> String
     func otp(_ name: String) async throws -> OTPCode
@@ -45,8 +53,8 @@ protocol VaultBackend: AnyObject {
     func delete(_ name: String) async throws
     func generate(length: Int, symbols: Bool) async throws -> String
     func enableTouchID(password: String) async throws
-    func sshGenerate(name: String, comment: String?) async throws -> SSHKeyInfo
-    func sshImport(name: String, key: String, passphrase: String?) async throws -> SSHKeyInfo
+    func sshGenerate(name: String, comment: String?, groupID: VaultGroup.ID?) async throws -> SSHKeyInfo
+    func sshImport(name: String, key: String, passphrase: String?, groupID: VaultGroup.ID?) async throws -> SSHKeyInfo
     func importPreview(path: String) async throws -> ImportPreview
     /// `names` are the names the preview showed for `indices`, so the
     /// backend can refuse if the file changed since.
@@ -184,9 +192,19 @@ final class RPCBackend: VaultBackend, @unchecked Sendable {
     func unlock(password: String) async throws { _ = try await call("unlock", ["method": "password", "password": password]) }
     func unlockWithTouchID() async throws { _ = try await call("unlock", ["method": "touch_id"]) }
     func lock() async throws { _ = try await call("lock") }
-    func list() async throws -> [ItemSummary] {
-        struct Wrapper: Decodable { let items: [ItemSummary] }
-        return try await call("list", as: Wrapper.self).items
+    func list() async throws -> VaultListing { try await call("list", as: VaultListing.self) }
+    func createGroup(_ name: String) async throws -> VaultGroup {
+        try await call("create_group", ["name": name], as: VaultGroup.self)
+    }
+    func renameGroup(_ id: VaultGroup.ID, to name: String) async throws {
+        _ = try await call("rename_group", ["group_id": id, "name": name])
+    }
+    func deleteGroup(_ id: VaultGroup.ID) async throws -> Int {
+        struct Reply: Decodable { let movedCount: Int }
+        return try await call("delete_group", ["group_id": id], as: Reply.self).movedCount
+    }
+    func moveItem(_ name: String, to group: VaultGroup.ID) async throws {
+        _ = try await call("move_item", ["name": name, "group_id": group])
     }
     func item(_ name: String) async throws -> ItemDetail { try await call("item", ["name": name], as: ItemDetail.self) }
     func reveal(_ name: String, field: String) async throws -> String {
@@ -208,14 +226,16 @@ final class RPCBackend: VaultBackend, @unchecked Sendable {
         return try await call("generate", ["length": length, "symbols": symbols], as: Wrapper.self).password
     }
     func enableTouchID(password: String) async throws { _ = try await call("enable_touch_id", ["password": password]) }
-    func sshGenerate(name: String, comment: String?) async throws -> SSHKeyInfo {
+    func sshGenerate(name: String, comment: String?, groupID: VaultGroup.ID?) async throws -> SSHKeyInfo {
         var params: [String: Any] = ["name": name]
         if let comment { params["comment"] = comment }
+        if let groupID { params["group_id"] = groupID }
         return try await call("ssh_generate", params, as: SSHKeyInfo.self)
     }
-    func sshImport(name: String, key: String, passphrase: String?) async throws -> SSHKeyInfo {
+    func sshImport(name: String, key: String, passphrase: String?, groupID: VaultGroup.ID?) async throws -> SSHKeyInfo {
         var params: [String: Any] = ["name": name, "key": key]
         if let passphrase { params["passphrase"] = passphrase }
+        if let groupID { params["group_id"] = groupID }
         return try await call("ssh_import", params, as: SSHKeyInfo.self)
     }
 }
