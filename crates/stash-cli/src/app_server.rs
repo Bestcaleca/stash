@@ -1032,8 +1032,9 @@ mod tests {
         assert_eq!(c, code::ALREADY_EXISTS);
         f.ok(
             "save",
-            json!({ "name": "work/github", "original_name": "github", "kind": "login",
-                    "fields": [{ "label": "password", "kind": "concealed" }] }),
+            json!({ "name": "工作/账号", "original_name": "github", "kind": "login",
+                    "fields": [{ "label": "password", "kind": "concealed" },
+                               { "label": "备用邮箱", "kind": "text", "value": "测试账号" }] }),
         );
         let names: Vec<String> = f.ok("list", json!({}))["items"]
             .as_array()
@@ -1041,13 +1042,20 @@ mod tests {
             .iter()
             .map(|i| i["name"].as_str().unwrap().to_owned())
             .collect();
-        assert_eq!(names, ["other", "work/github"]);
+        assert_eq!(names, ["other", "工作/账号"]);
         assert_eq!(
             f.ok(
                 "reveal",
-                json!({ "name": "work/github", "field": "password" })
+                json!({ "name": "工作/账号", "field": "password" })
             )["value"],
             "hunter2!"
+        );
+        assert_eq!(
+            f.ok(
+                "reveal",
+                json!({ "name": "工作/账号", "field": "备用邮箱" })
+            )["value"],
+            "测试账号"
         );
         let (c, _) = f.err(
             "save",

@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use crate::{Error, validate_name};
+use crate::{Error, name::is_visible_alphanumeric, validate_name};
 
 pub const SCHEME: &str = "stash://";
 
@@ -72,6 +72,10 @@ pub fn parse(value: &str) -> Result<Option<Reference<'_>>, Error> {
     let Some(rest) = value.trim().strip_prefix(SCHEME) else {
         return Ok(None);
     };
+    parse_reference(rest).map(Some)
+}
+
+fn parse_reference(rest: &str) -> Result<Reference<'_>, Error> {
     let (name, field) = match rest.split_once('#') {
         Some((name, field)) => (name, Some(field)),
         None => (rest, None),
@@ -79,10 +83,10 @@ pub fn parse(value: &str) -> Result<Option<Reference<'_>>, Error> {
     validate_name(name)?;
     if let Some(field) = field {
         let ok = !field.is_empty()
-            && field.len() <= 64
+            && field.chars().count() <= 64
             && field
                 .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'));
+                .all(|c| is_visible_alphanumeric(c) || matches!(c, ' ' | '-' | '_' | '.'));
         if !ok {
             return Err(Error::InvalidName(
                 rest.to_owned(),
@@ -90,25 +94,13 @@ pub fn parse(value: &str) -> Result<Option<Reference<'_>>, Error> {
             ));
         }
     }
-    Ok(Some(Reference { name, field }))
+    Ok(Reference { name, field })
 }
 
 /// A bare name or `name#field` as typed on the command line (with or
 /// without the `stash://` prefix).
 pub fn parse_arg(arg: &str) -> Result<Reference<'_>, Error> {
-    if arg.trim().starts_with(SCHEME) {
-        return Ok(parse(arg)?.expect("has the scheme"));
-    }
-    let (name, field) = match arg.split_once('#') {
-        Some((name, field)) => (name, Some(field)),
-        None => (arg, None),
-    };
-    validate_name(name)?;
-    if let Some(field) = field {
-        // Reuse the full validation.
-        parse(&format!("{SCHEME}{name}#{field}"))?;
-    }
-    Ok(Reference { name, field })
+    parse_reference(arg.trim().strip_prefix(SCHEME).unwrap_or(arg))
 }
 
 /// One `{{ stash://name }}` placeholder found in a template.
@@ -179,6 +171,17 @@ mod tests {
                 field: None
             }
         );
+        assert_eq!(
+            parse("stash://工作/账号#备用 邮箱").unwrap(),
+            r("工作/账号", Some("备用 邮箱"))
+        );
+        assert_eq!(
+            parse_arg("工作/账号#用户名").unwrap(),
+            Reference {
+                name: "工作/账号",
+                field: Some("用户名")
+            }
+        );
         assert_eq!(parse("ghp_literal").unwrap(), None);
         assert_eq!(parse("https://example.com").unwrap(), None);
     }
@@ -195,12 +198,13 @@ mod tests {
 
     #[test]
     fn finds_template_placeholders() {
-        let t = "url: {{stash://db/url}}\nkey: {{ stash://api/key }}\nother: {{ not.ours }}";
+        let t =
+            "url: {{stash://db/url}}\n密钥: {{ stash://工作/账号#用户名 }}\nother: {{ not.ours }}";
         let found = placeholders(t).unwrap();
         let names: Vec<_> = found.iter().map(|p| p.reference.name).collect();
-        assert_eq!(names, ["db/url", "api/key"]);
+        assert_eq!(names, ["db/url", "工作/账号"]);
         assert_eq!(&t[found[0].span.clone()], "{{stash://db/url}}");
-        assert_eq!(&t[found[1].span.clone()], "{{ stash://api/key }}");
+        assert_eq!(&t[found[1].span.clone()], "{{ stash://工作/账号#用户名 }}");
     }
 
     #[test]

@@ -923,7 +923,7 @@ fn free_name(vault: &Vault, base: &str, username: Option<&str>) -> stash_core::R
         let slug: String = user
             .chars()
             .map(|c| {
-                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                if c.is_alphanumeric() || matches!(c, '.' | '_' | '-') {
                     c
                 } else {
                     '-'

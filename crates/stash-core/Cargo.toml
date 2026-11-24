@@ -18,6 +18,8 @@ curve25519-dalek = "5.0.0"
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 hmac = "0.13.0"
+icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
+icu_properties = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
 psl = "2.1.242"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 secrecy = "0.10.3"

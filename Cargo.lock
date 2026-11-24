@@ -1247,6 +1247,8 @@ dependencies = [
  "ed25519-dalek",
  "getrandom",
  "hmac",
+ "icu_normalizer",
+ "icu_properties",
  "psl",
  "rusqlite",
  "secrecy",

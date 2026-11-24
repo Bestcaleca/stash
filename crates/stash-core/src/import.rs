@@ -15,11 +15,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read};
 
+use icu_normalizer::ComposingNormalizerBorrowed;
 use serde_json::Value;
 use zeroize::Zeroizing;
 
 use crate::item::{BankDetails, CardDetails, FieldKind, Item, Kind};
-use crate::{Error, otp, site};
+use crate::{Error, name::is_visible_alphanumeric, otp, site};
 
 const OTP_LABEL: &str = "one-time password";
 
@@ -74,8 +75,10 @@ fn invalid(why: &str) -> Error {
 /// "GitHub (work)" → "github-work": what stash names allow.
 fn slug(text: &str) -> String {
     let mut out = String::new();
-    for c in text.trim().chars().flat_map(char::to_lowercase) {
-        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+    let lowercase = text.trim().to_lowercase();
+    let normalized = ComposingNormalizerBorrowed::new_nfc().normalize(&lowercase);
+    for c in normalized.chars() {
+        if is_visible_alphanumeric(c) || matches!(c, '.' | '_' | '-') {
             out.push(c);
         } else if !out.ends_with('-') {
             out.push('-');
@@ -1003,6 +1006,10 @@ mod tests {
 
     #[test]
     fn names_are_always_valid() {
+        assert_eq!(
+            name_for(Some("工作/测试"), "登录 账号", None, Kind::Login),
+            "工作/测试/登录-账号"
+        );
         for title in [
             "",
             "  ",
