@@ -36,11 +36,8 @@ struct OTPSetup: Equatable {
     /// A stash item name from the issuer: "GitHub" → "github".
     var suggestedName: String? {
         guard let issuer else { return nil }
-        let slug = issuer.lowercased()
-            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
-            .reduce(into: "") { s, c in if !(c == "-" && s.hasSuffix("-")) { s.append(c) } }
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return slug.isEmpty ? nil : String(slug.prefix(60))
+        let slug = ItemText.slug(issuer)
+        return slug.isEmpty ? nil : slug
     }
 }
 

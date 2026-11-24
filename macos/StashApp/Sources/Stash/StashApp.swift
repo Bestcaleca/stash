@@ -246,6 +246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = await m.save(login("fresh"))
         check(m.search == "fre", "a search that matches it is kept")
 
+        m = await fresh(.all, search: "账号")
+        _ = await m.save(login("工作/账号"))
+        check(m.search == "账号" && m.filtered.map(\.name) == ["工作/账号"], "search finds Chinese item names")
+
         m = await fresh(.kind(.ssh))
         _ = await m.save(login("github", editing: "github"))
         check(m.filter == .kind(.ssh), "editing never moves you")
@@ -287,6 +291,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               && PaymentHints.cardStatus("3782 822463 10005")?.note == "looks right", "American Express is complete at 15 digits")
         check(ItemText.slug("Chase Checking!") == "chase-checking" && ItemText.slug("  ") == "", "names are slugs")
         check(ItemText.slug(String(repeating: "a", count: 90)).count == 60, "names are capped")
+        check(ItemText.slug("公司 账号２") == "公司-账号２", "names keep Chinese letters and digits")
+        check(ItemText.slug(String(repeating: "账", count: 90)).count == 60, "Chinese names are capped")
         check(ItemText.site(fromWebsite: "https://www.github.com/login") == "github"
               && ItemText.site(fromWebsite: "") == nil, "a login's name comes from its site")
         let label = ItemText.otpLabel("otpauth://totp/GitHub:samus%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Git%20Hub")

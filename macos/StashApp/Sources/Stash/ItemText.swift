@@ -6,8 +6,14 @@ import Foundation
 enum ItemText {
     /// "Chase Checking!" → "chase-checking": what item names allow.
     static func slug(_ text: String) -> String {
-        let mapped = text.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
-        return String(mapped).split(separator: "-").joined(separator: "-").prefix(60).description
+        let normalized = text.lowercased().precomposedStringWithCanonicalMapping
+        let mapped = normalized.unicodeScalars.map { scalar in
+            let properties = scalar.properties
+            let isLetterOrNumber = properties.isAlphabetic || properties.numericType != nil
+            return isLetterOrNumber && !properties.isDefaultIgnorableCodePoint ? String(scalar) : "-"
+        }.joined()
+        let slug = mapped.split(separator: "-").joined(separator: "-")
+        return String(String.UnicodeScalarView(slug.unicodeScalars.prefix(60)))
     }
 
     /// "https://www.github.com/login" → "github": a login's name from its website.

@@ -491,8 +491,12 @@ struct ItemEditorView: View {
         return true
     }
 
+    private var normalizedName: String {
+        name.trimmingCharacters(in: .whitespaces).precomposedStringWithCanonicalMapping
+    }
+
     private var problem: String? {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let trimmed = normalizedName
         if trimmed.isEmpty { return String(localized: "Give it a name.") }
         if trimmed.contains(" ") { return String(localized: "Names can't contain spaces (try github or work/aws).") }
         if kind == .ssh && isNew && sshImporting {
@@ -611,7 +615,7 @@ struct ItemEditorView: View {
             fields += keptHidden.map { .init(label: $0.label, kind: $0.kind, value: nil) }
         }
         let request = SaveRequest(
-            name: name.trimmingCharacters(in: .whitespaces),
+            name: normalizedName,
             originalName: original?.name,
             kind: kind,
             fields: fields,
@@ -689,7 +693,7 @@ struct ItemEditorView: View {
     }
 
     private func saveNewSSHKey() async {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let trimmed = normalizedName
         let result: (ok: Bool, needsPassphrase: Bool)
         if sshImporting, let sshFile {
             guard let text = try? String(contentsOf: sshFile, encoding: .utf8) else {

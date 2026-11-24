@@ -316,7 +316,7 @@
 "Use Face ID to unlock stash?" = "使用面容 ID 解锁 stash？";
 "Use MM/YY for the expiry date." = "有效期请使用 MM/YY 格式。";
 "Use Password" = "使用密码";
-"Use a slash for folders, like work/aws" = "用斜杠指定文件夹，例如 work/aws";
+"Use a slash for folders, like work/aws" = "用斜杠指定文件夹，例如 工作/账号";
 "Use at least %lld characters." = "请使用至少 %lld 个字符。";
 "Use at least 8 characters. A long passphrase is best." = "请使用至少 8 个字符。建议使用长口令。";
 "Use it in .env files with " = "在 .env 文件中使用，运行 ";
