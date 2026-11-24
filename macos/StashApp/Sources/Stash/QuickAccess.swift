@@ -54,6 +54,10 @@ struct QuickAccessView: View {
     @ViewState private var copied: String?
     @FocusState private var focused: Bool
 
+    private var isComposingText: Bool {
+        (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
+    }
+
     private var results: [ItemSummary] {
         let q = query.lowercased()
         let all = q.isEmpty ? model.items : model.items.filter {
@@ -71,16 +75,31 @@ struct QuickAccessView: View {
                     .font(.plex(19))
                     .foregroundStyle(Color.ink)
                     .focused($focused)
-                    .onSubmit { Task { await copyHighlighted() } }
+                    .onSubmit {
+                        guard !isComposingText else { return }
+                        Task { await copyHighlighted() }
+                    }
                     .onKeyPress(.return, phases: .down) { press in
-                        guard press.modifiers.contains(.option),
+                        guard !isComposingText, press.modifiers.contains(.option),
                               let item = results[safe: highlighted], item.hasOtp else { return .ignored }
                         Task { if await model.copyOTP(for: item) { finish("2FA code") } }
                         return .handled
                     }
-                    .onKeyPress(.downArrow) { highlighted = min(highlighted + 1, max(results.count - 1, 0)); return .handled }
-                    .onKeyPress(.upArrow) { highlighted = max(highlighted - 1, 0); return .handled }
-                    .onKeyPress(.escape) { close(); return .handled }
+                    .onKeyPress(.downArrow) {
+                        guard !isComposingText else { return .ignored }
+                        highlighted = min(highlighted + 1, max(results.count - 1, 0))
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
+                        guard !isComposingText else { return .ignored }
+                        highlighted = max(highlighted - 1, 0)
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        guard !isComposingText else { return .ignored }
+                        close()
+                        return .handled
+                    }
                     .onChange(of: query) { highlighted = 0 }
             }
             .padding(14)
