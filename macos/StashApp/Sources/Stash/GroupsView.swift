@@ -60,15 +60,81 @@ struct GroupSidebar: View {
 struct GroupPicker: View {
     @EnvironmentObject private var model: AppModel
     @Binding var selection: VaultGroup.ID
+    @State private var showingGroups = false
+    @FocusState private var focusedGroup: VaultGroup.ID?
 
     var body: some View {
-        Picker("Group", selection: $selection) {
-            ForEach(model.groups) { group in
-                Text(group.title).tag(group.id)
+        let title = model.groupTitle(selection)
+        Button { showingGroups.toggle() } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 140, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.inkSecondary)
             }
         }
-        .labelsHidden()
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(SecondaryButtonStyle())
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityLabel(Text("Group"))
+        .accessibilityValue(Text(title))
+        .help(title)
+        .popover(isPresented: $showingGroups, arrowEdge: .bottom) {
+            ViewThatFits(in: .vertical) {
+                options.fixedSize(horizontal: false, vertical: true)
+                ScrollView { options }
+            }
+            .frame(width: 192)
+            .frame(maxHeight: 224)
+            .padding(6)
+            .onAppear { focusedGroup = selection }
+            .onKeyPress(.downArrow) { moveFocus(by: 1) }
+            .onKeyPress(.upArrow) { moveFocus(by: -1) }
+        }
+    }
+
+    private var options: some View {
+        VStack(spacing: 2) {
+            ForEach(model.groups) { group in
+                Button {
+                    selection = group.id
+                    showingGroups = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(group.title)
+                            .font(.plex(13))
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.amberText)
+                            .opacity(group.id == selection ? 1 : 0)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(group.id == (focusedGroup ?? selection) ? Color.amberTint : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 6))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable()
+                .focused($focusedGroup, equals: group.id)
+                .accessibilityAddTraits(group.id == selection ? .isSelected : [])
+            }
+        }
+    }
+
+    private func moveFocus(by step: Int) -> KeyPress.Result {
+        guard let index = model.groups.firstIndex(where: { $0.id == (focusedGroup ?? selection) }) else {
+            return .ignored
+        }
+        let next = index + step
+        if model.groups.indices.contains(next) { focusedGroup = model.groups[next].id }
+        return .handled
     }
 }
 
