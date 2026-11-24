@@ -25,7 +25,7 @@ use stash_core::generate::{self, Rules};
 use stash_core::import;
 use stash_core::item::FieldValue;
 use stash_core::otp::Totp;
-use stash_core::{Error, Field, FieldKind, Item, KdfParams, Kind, Vault};
+use stash_core::{Error, Field, FieldKind, GroupId, Item, KdfParams, Kind, Vault};
 use zeroize::Zeroizing;
 
 use crate::{text, touchid};
@@ -46,6 +46,10 @@ mod code {
     /// Cards, bank accounts, and SSH keys need Touch ID, or the master
     /// password (`password` param) where Touch ID isn't set up.
     pub const NEEDS_PASSWORD: i64 = -32008;
+    pub const INVALID_GROUP_NAME: i64 = -32009;
+    pub const GROUP_NAME_EXISTS: i64 = -32010;
+    pub const GROUP_NOT_FOUND: i64 = -32011;
+    pub const DEFAULT_GROUP: i64 = -32012;
 }
 
 struct Failure {
@@ -74,6 +78,10 @@ impl From<Error> for Failure {
             Error::NeedsUpgrade | Error::UpgradeBlocked => code::NEEDS_UPGRADE,
             Error::AlreadyExists(_) => code::ALREADY_EXISTS,
             Error::SshPassphrase => code::NEEDS_PASSPHRASE,
+            Error::InvalidGroupName => code::INVALID_GROUP_NAME,
+            Error::GroupNameExists => code::GROUP_NAME_EXISTS,
+            Error::GroupNotFound => code::GROUP_NOT_FOUND,
+            Error::DefaultGroup => code::DEFAULT_GROUP,
             _ => code::FAILED,
         };
         Failure::new(code, e.to_string())
@@ -179,6 +187,10 @@ impl Server {
                 Ok(json!({}))
             }
             "list" => self.list(),
+            "create_group" => self.create_group(&params),
+            "rename_group" => self.rename_group(&params),
+            "delete_group" => self.delete_group(&params),
+            "move_item" => self.move_item(&params),
             "item" => self.item(&params),
             "reveal" => self.reveal(&params),
             "otp" => self.otp(&params),
@@ -367,10 +379,11 @@ impl Server {
     }
 
     fn list(&mut self) -> Reply {
-        let summaries = self.vault()?.summaries()?;
+        let (groups, summaries) = self.vault()?.grouped_summaries()?;
         let items: Vec<Value> = summaries
             .into_iter()
-            .map(|s| {
+            .map(|grouped| {
+                let s = grouped.summary;
                 json!({
                     "name": s.name,
                     "kind": s.kind,
@@ -379,10 +392,36 @@ impl Server {
                     "has_otp": s.has_otp,
                     "updated": s.updated,
                     "subtitle": s.subtitle,
+                    "group_id": grouped.group_id,
                 })
             })
             .collect();
-        Ok(json!({ "items": items }))
+        Ok(json!({ "items": items, "groups": groups }))
+    }
+
+    fn create_group(&mut self, params: &Value) -> Reply {
+        let name = string_param(params, "name")?;
+        Ok(json!(self.vault()?.create_group(&name)?))
+    }
+
+    fn rename_group(&mut self, params: &Value) -> Reply {
+        let id = group_id_param(params, "group_id")?;
+        let name = string_param(params, "name")?;
+        self.vault()?.rename_group(id, &name)?;
+        Ok(json!({}))
+    }
+
+    fn delete_group(&mut self, params: &Value) -> Reply {
+        let id = group_id_param(params, "group_id")?;
+        let moved_count = self.vault()?.delete_group(id)?;
+        Ok(json!({ "moved_count": moved_count }))
+    }
+
+    fn move_item(&mut self, params: &Value) -> Reply {
+        let name = name_param(params, "name")?;
+        let id = group_id_param(params, "group_id")?;
+        self.vault()?.move_item(&name, id)?;
+        Ok(json!({}))
     }
 
     /// An item's shape, with every sensitive value left out.
@@ -532,14 +571,6 @@ impl Server {
                 old.kind, request.kind
             )));
         }
-        let renamed = request
-            .original_name
-            .as_deref()
-            .is_some_and(|o| o != request.name);
-        if (existing.is_none() || renamed) && vault.contains(&request.name)? {
-            return Err(Error::AlreadyExists(request.name.clone()).into());
-        }
-
         let mut fields = Vec::with_capacity(request.fields.len());
         for f in &request.fields {
             // A kept value keeps its stored kind too: a client can't turn a
@@ -589,10 +620,12 @@ impl Server {
             updated: 0,
             summary: None,
         };
-        vault.put(&request.name, &item, true)?;
-        if renamed {
-            vault.remove(request.original_name.as_deref().expect("renamed"))?;
-        }
+        vault.save_item(
+            &request.name,
+            &item,
+            request.original_name.as_deref(),
+            request.group_id,
+        )?;
         item.notes.clear();
         Ok(json!({}))
     }
@@ -631,17 +664,19 @@ impl Server {
         name: &str,
         pair: &stash_core::ssh::KeyPair,
     ) -> Reply {
+        let group_id = params
+            .get("group_id")
+            .map(|id| {
+                id.as_u64()
+                    .ok_or_else(|| Failure::params("invalid group_id"))
+            })
+            .transpose()?;
         let reason = format!("add the SSH key “{name}” in the stash app");
-        self.with_sensitive(params, &reason, |me| me.save_ssh_key_now(name, pair))
-    }
-
-    fn save_ssh_key_now(&mut self, name: &str, pair: &stash_core::ssh::KeyPair) -> Reply {
-        let vault = self.vault()?;
-        if vault.contains(name)? {
-            return Err(Error::AlreadyExists(name.to_owned()).into());
-        }
-        vault.put(name, &Item::ssh_key(pair), false)?;
-        Ok(json!({ "public_key": pair.public_line(), "fingerprint": pair.fingerprint() }))
+        self.with_sensitive(params, &reason, |me| {
+            me.vault()?
+                .save_item(name, &Item::ssh_key(pair), None, group_id)?;
+            Ok(json!({ "public_key": pair.public_line(), "fingerprint": pair.fingerprint() }))
+        })
     }
 
     fn delete(&mut self, params: &Value) -> Reply {
@@ -775,6 +810,8 @@ struct SaveRequest {
     name: String,
     #[serde(default)]
     original_name: Option<String>,
+    #[serde(default)]
+    group_id: Option<GroupId>,
     kind: Kind,
     #[serde(default)]
     fields: Vec<SaveField>,
@@ -815,6 +852,13 @@ fn string_param(params: &Value, key: &str) -> std::result::Result<String, Failur
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| Failure::params(format!("missing `{key}`")))
+}
+
+fn group_id_param(params: &Value, key: &str) -> std::result::Result<GroupId, Failure> {
+    params
+        .get(key)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| Failure::params(format!("invalid or missing {key}")))
 }
 
 /// The Touch ID prompt's reason. Names the requester unless it's verified
@@ -1166,11 +1210,63 @@ mod tests {
     }
 
     #[test]
+    fn groups_round_trip_over_rpc_and_require_unlock() {
+        let mut f = Fixture::new();
+        f.github();
+        let initial = f.ok("list", json!({}));
+        assert_eq!(initial["groups"], json!([{ "id": 0, "name": null }]));
+        assert_eq!(initial["items"][0]["group_id"], 0);
+        let group = f.ok("create_group", json!({ "name": "公司" }));
+        let id = group["id"].as_u64().unwrap();
+        f.ok("rename_group", json!({ "group_id": id, "name": "工作" }));
+        f.ok("move_item", json!({ "name": "github", "group_id": id }));
+        f.ok(
+            "save",
+            json!({ "name": "work/note", "kind": "note", "notes": "example", "group_id": id }),
+        );
+        let list = f.ok("list", json!({}));
+        assert_eq!(list["groups"][1]["name"], "工作");
+        assert!(
+            list["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["group_id"] == id)
+        );
+
+        assert_eq!(
+            f.err("delete_group", json!({ "group_id": 0 })).0,
+            code::DEFAULT_GROUP
+        );
+        assert_eq!(
+            f.ok("delete_group", json!({ "group_id": id }))["moved_count"],
+            2
+        );
+        let list = f.ok("list", json!({}));
+        assert_eq!(list["items"].as_array().unwrap().len(), 2);
+        assert!(
+            list["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["group_id"] == 0)
+        );
+
+        f.ok("lock", json!({}));
+        assert_eq!(f.err("list", json!({})).0, code::LOCKED);
+        assert_eq!(
+            f.err("create_group", json!({ "name": "开发" })).0,
+            code::LOCKED
+        );
+    }
+
+    #[test]
     fn makes_and_imports_ssh_keys() {
         let mut f = Fixture::new();
+        let group = f.ok("create_group", json!({ "name": "开发" }));
         let made = f.ok(
             "ssh_generate",
-            json!({ "name": "ssh/github", "comment": "me@mac", "password": "correct horse" }),
+            json!({ "name": "ssh/github", "comment": "me@mac", "password": "correct horse", "group_id": group["id"] }),
         );
         assert!(made["public_key"].as_str().unwrap().ends_with(" me@mac"));
         let listed = f.ok("list", json!({}));
@@ -1182,6 +1278,7 @@ mod tests {
             .unwrap()
             .clone();
         assert_eq!(row["kind"], "ssh");
+        assert_eq!(row["group_id"], group["id"]);
         assert!(
             row["subtitle"]
                 .as_str()
