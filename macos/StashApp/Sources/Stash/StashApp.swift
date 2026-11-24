@@ -84,11 +84,12 @@ struct MenuBarContent: View {
         Button("Open stash") {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "main")
+            Task { await model.prepareForAccess() }
         }
         Divider()
         if case .unlocked = model.screen {
             Button("Lock") { Task { await model.lock() } }
-        } else {
+        } else if case .locked = model.screen, model.canUseTouchID {
             Button("Unlock with Touch ID") { Task { await model.unlockWithTouchID() } }
         }
         Divider()
@@ -113,7 +114,15 @@ struct SettingsView: View {
                 Text("Copied secrets are cleared after this long, marked concealed so clipboard managers skip them, and kept off your other devices.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Touch ID") {
+            Section("Unlock") {
+                Picker("Preferred unlock method", selection: $model.preferredUnlockMethod) {
+                    Text("Touch ID").tag(AppModel.UnlockMethod.touchID)
+                    Text("Master password").tag(AppModel.UnlockMethod.password)
+                }
+                .pickerStyle(.segmented)
+                Text("When Touch ID is enabled and preferred, opening stash asks for your fingerprint. You can still use your master password.")
+                    .font(.caption).foregroundStyle(.secondary)
+
                 if model.status?.touchIdEnabled == true {
                     Label("Touch ID unlock is on", systemImage: "touchid")
                 } else if model.status?.touchIdAvailable == true {
@@ -132,7 +141,7 @@ struct SettingsView: View {
                     }
                     .disabled(password.isEmpty)
                     if let message { Text(message).foregroundStyle(.red).font(.caption) }
-                } else {
+                } else if model.status?.touchIdAvailable == false {
                     Text("Touch ID isn't available on this Mac.").foregroundStyle(.secondary)
                 }
             }
@@ -193,6 +202,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Task { await model.prepareForAccess() }
+        return true
+    }
+
     /// `--modeltest`: check the app model's behavior on sample data (no
     /// vault, no backend process). Prints each check and exits 1 on failure.
     private func modeltest() async {
@@ -215,6 +229,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         func bank(_ name: String) -> SaveRequest {
             SaveRequest(name: name, originalName: nil, kind: .bank, fields: [], notes: nil)
         }
+
+        await checkUnlockPreferences(check)
 
         var m = await fresh(.kind(.ssh))
         _ = await m.save(login("new/login"))
@@ -325,6 +341,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         print(failed == 0 ? "modeltest: ok" : "modeltest: \(failed) failed")
         exit(failed == 0 ? 0 : 1)
+    }
+
+    private func checkUnlockPreferences(_ check: (Bool, String) -> Void) async {
+        let suite = "stash.modeltest.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            check(false, "unlock test defaults are available")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let backend = MockBackend(locked: true)
+        let model = AppModel(backend: backend, defaults: defaults)
+        await model.start()
+        check(backend.touchIDRequests == 1 && backend.locked && model.error == nil,
+              "Touch ID opens on launch and cancellation leaves the vault locked")
+        await model.start()
+        check(backend.touchIDRequests == 1, "updating the lock screen does not repeat the prompt")
+        await model.unlock(password: "test password")
+        check(!backend.locked, "master password still works after cancellation")
+
+        await model.lock()
+        check(backend.locked && backend.touchIDRequests == 1, "locking does not reopen the prompt")
+        backend.stayLocked = false
+        await model.prepareForAccess()
+        check(!backend.locked && backend.touchIDRequests == 2, "reopening uses Touch ID directly")
+        backend.locked = true
+        await model.prepareForAccess()
+        check(!backend.locked && backend.touchIDRequests == 3, "reopening detects an idle lock")
+
+        model.preferredUnlockMethod = .password
+        let passwordBackend = MockBackend(locked: true)
+        let passwordModel = AppModel(backend: passwordBackend, defaults: defaults)
+        await passwordModel.prepareForAccess()
+        await passwordModel.prepareForAccess()
+        check(passwordModel.status?.locked == true && passwordModel.effectiveUnlockMethod == .password
+              && passwordBackend.touchIDRequests == 0, "Quick Access starts with the saved password preference")
+        passwordBackend.stayLocked = false
+        await passwordModel.unlockWithTouchID()
+        check(!passwordBackend.locked && passwordBackend.touchIDRequests == 1,
+              "Touch ID can still be selected manually")
+
+        passwordModel.preferredUnlockMethod = .touchID
+        let unavailableBackend = MockBackend(locked: true)
+        unavailableBackend.touchIDAvailable = false
+        let fallbackModel = AppModel(backend: unavailableBackend, defaults: defaults)
+        await fallbackModel.start()
+        check(fallbackModel.preferredUnlockMethod == .touchID && fallbackModel.effectiveUnlockMethod == .password
+              && unavailableBackend.touchIDRequests == 0, "unavailable Touch ID falls back to the password")
+
+        let disabledBackend = MockBackend(locked: true)
+        disabledBackend.touchIDEnabled = false
+        let disabledModel = AppModel(backend: disabledBackend, defaults: defaults)
+        await disabledModel.start()
+        check(disabledModel.effectiveUnlockMethod == .password && disabledBackend.touchIDRequests == 0,
+              "Touch ID must be enabled before it can be used")
     }
 
     /// `--selftest`: exercise every backend call against a throwaway vault

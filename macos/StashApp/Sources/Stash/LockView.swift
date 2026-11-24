@@ -29,46 +29,59 @@ private struct Brand: View {
 
 struct LockView: View {
     @EnvironmentObject var model: AppModel
-    @ViewState private var password = ""
-    @FocusState private var focused: Bool
-
-    private var touchID: Bool {
-        (model.status?.touchIdEnabled ?? false) && (model.status?.touchIdAvailable ?? false)
-    }
 
     var body: some View {
         GateCard {
             Brand()
-            Text("Your secrets, one fingerprint away.")
+            Text("Unlock your vault")
                 .font(.plex(14))
                 .foregroundStyle(Color.inkSecondary)
 
-            VStack(spacing: 14) {
-                if touchID {
-                    Button {
-                        Task { await model.unlockWithTouchID() }
-                    } label: {
-                        Label("Unlock with Touch ID", systemImage: "touchid")
-                    }
-                    .buttonStyle(PrimaryButtonStyle(wide: true))
-                    .keyboardShortcut(.defaultAction)
+            UnlockForm()
 
-                    HStack(spacing: 10) {
-                        Rectangle().fill(Color.line).frame(height: 1)
-                        Text("or").font(.plex(12)).foregroundStyle(Color.inkTertiary)
-                        Rectangle().fill(Color.line).frame(height: 1)
-                    }
-                }
+            Text(model.status?.vaultPath ?? "")
+                .font(.mono(11))
+                .foregroundStyle(Color.inkTertiary)
+        }
+    }
+}
+
+struct UnlockForm: View {
+    @EnvironmentObject private var model: AppModel
+    @ViewState private var password = ""
+    @FocusState private var passwordFocused: Bool
+
+    private var touchIDFirst: Bool {
+        model.effectiveUnlockMethod == .touchID
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if touchIDFirst {
+                touchIDButton
+                    .buttonStyle(PrimaryButtonStyle(wide: true))
+                    .keyboardShortcut(password.isEmpty ? .defaultAction : nil)
+            }
+
+            HStack(spacing: 8) {
                 FieldBox(icon: "lock", mono: false) {
-                    SecureField("", text: $password, prompt: Text("Master password").font(.plex(13.5)).foregroundStyle(Color.inkTertiary))
-                        .focused($focused)
-                        .onSubmit(submitPassword)
+                    SecureField("Master password", text: $password,
+                                prompt: Text("Master password").foregroundStyle(Color.inkTertiary))
+                        .labelsHidden()
+                        .focused($passwordFocused)
+                        .onSubmit(submitDefault)
                 }
-                if !touchID {
-                    Button("Unlock", action: submitPassword)
-                        .buttonStyle(PrimaryButtonStyle(wide: true))
-                        .disabled(password.isEmpty)
+                if touchIDFirst {
+                    passwordButton
+                        .buttonStyle(SecondaryButtonStyle())
+                        .opacity(password.isEmpty ? 0.5 : 1)
+                } else {
+                    passwordButton.buttonStyle(PrimaryButtonStyle())
                 }
+            }
+
+            if model.canUseTouchID && !touchIDFirst {
+                touchIDButton.buttonStyle(SecondaryButtonStyle())
             }
 
             if let error = model.error {
@@ -77,25 +90,40 @@ struct LockView: View {
                     .foregroundStyle(Color.danger)
                     .multilineTextAlignment(.center)
             }
-
-            Text(model.status?.vaultPath ?? "")
-                .font(.mono(11))
-                .foregroundStyle(Color.inkTertiary)
         }
         .disabled(model.busy)
-        .task {
-            if touchID && model.offerTouchIDOnShow {
-                model.offerTouchIDOnShow = false
-                await model.unlockWithTouchID()
-            } else {
-                model.offerTouchIDOnShow = false
-                focused = true
-            }
+        .task { passwordFocused = !model.busy }
+        .onChange(of: model.busy) { _, busy in
+            if !busy { passwordFocused = true }
         }
     }
 
+    private var touchIDButton: some View {
+        Button(action: submitTouchID) {
+            Label("Unlock with Touch ID", systemImage: "touchid")
+        }
+    }
+
+    private var passwordButton: some View {
+        Button("Unlock", action: submitPassword)
+            .keyboardShortcut(password.isEmpty ? nil : .defaultAction)
+            .disabled(password.isEmpty)
+    }
+
+    private func submitDefault() {
+        if password.isEmpty && touchIDFirst {
+            submitTouchID()
+        } else {
+            submitPassword()
+        }
+    }
+
+    private func submitTouchID() {
+        Task { await model.unlockWithTouchID() }
+    }
+
     private func submitPassword() {
-        guard !password.isEmpty else { return }
+        guard !password.isEmpty, !model.busy else { return }
         let pw = password
         password = ""
         Task { await model.unlock(password: pw) }

@@ -4,9 +4,15 @@ import SwiftUI
 @MainActor
 final class AppModel: ObservableObject {
     enum Screen { case starting, createVault, locked, unlocked, failed(String) }
+    enum UnlockMethod: String { case touchID, password }
+
+    private static let unlockMethodKey = "preferredUnlockMethod"
 
     @Published var screen: Screen = .starting
     @Published var status: VaultStatus?
+    @Published var preferredUnlockMethod: UnlockMethod {
+        didSet { defaults.set(preferredUnlockMethod.rawValue, forKey: Self.unlockMethodKey) }
+    }
     @Published var items: [ItemSummary] = []
     @Published private(set) var groups: [VaultGroup] = [.personal]
     @Published private(set) var selectedGroupID: VaultGroup.ID?
@@ -21,15 +27,24 @@ final class AppModel: ObservableObject {
     @Published var editor: EditorTarget?
     /// The export file being imported, while its sheet is open.
     @Published var importFile: ImportFile?
-    /// The lock screen asks for Touch ID by itself only once, when the app
-    /// opens. After you lock (or it locks when idle), it waits for "Unlock
-    /// with Touch ID": asking again right away would make locking pointless.
-    var offerTouchIDOnShow = true
 
     let backend: VaultBackend?
+    private let defaults: UserDefaults
+    private var starting = false
 
-    init(backend: VaultBackend?) {
+    init(backend: VaultBackend?, defaults: UserDefaults = .standard) {
         self.backend = backend
+        self.defaults = defaults
+        let savedMethod = defaults.string(forKey: Self.unlockMethodKey)
+        preferredUnlockMethod = savedMethod.flatMap(UnlockMethod.init(rawValue:)) ?? .touchID
+    }
+
+    var canUseTouchID: Bool {
+        status?.touchIdEnabled == true && status?.touchIdAvailable == true
+    }
+
+    var effectiveUnlockMethod: UnlockMethod {
+        canUseTouchID ? preferredUnlockMethod : .password
     }
 
     enum Filter: Hashable {
@@ -131,6 +146,9 @@ final class AppModel: ObservableObject {
     // MARK: - Lifecycle
 
     func start() async {
+        guard case .starting = screen, !starting else { return }
+        starting = true
+        defer { starting = false }
         guard let backend else {
             screen = .failed(String(localized: "Couldn't start the stash backend. Is the stash command-line tool installed?"))
             return
@@ -142,12 +160,24 @@ final class AppModel: ObservableObject {
                 screen = .createVault
             } else if s.locked {
                 screen = .locked
+                if effectiveUnlockMethod == .touchID { await unlockWithTouchID() }
             } else {
                 await didUnlock()
             }
         } catch {
             screen = .failed(error.localizedDescription)
         }
+    }
+
+    /// Check for an idle lock and use the preferred method when the user opens stash.
+    func prepareForAccess() async {
+        guard !busy else { return }
+        if case .starting = screen {
+            await start()
+            return
+        }
+        if case .unlocked = screen { await reload() }
+        if effectiveUnlockMethod == .touchID { await unlockWithTouchID() }
     }
 
     private func run(_ work: () async throws -> Void) async {
@@ -186,15 +216,17 @@ final class AppModel: ObservableObject {
     }
 
     func unlock(password: String) async {
+        guard case .locked = screen, !busy, let backend else { return }
         await run {
-            try await backend?.unlock(password: password)
+            try await backend.unlock(password: password)
             await didUnlock()
         }
     }
 
     func unlockWithTouchID() async {
+        guard case .locked = screen, !busy, canUseTouchID, let backend else { return }
         await run {
-            try await backend?.unlockWithTouchID()
+            try await backend.unlockWithTouchID()
             await didUnlock()
         }
     }
@@ -453,7 +485,10 @@ final class MockBackend: VaultBackend {
     }()
 
     /// Snapshots of the lock screen stay locked (Touch ID "cancelled").
-    let stayLocked: Bool
+    var stayLocked: Bool
+    var touchIDAvailable = true
+    var touchIDEnabled = true
+    private(set) var touchIDRequests = 0
 
     init(locked: Bool) {
         self.locked = locked
@@ -462,16 +497,20 @@ final class MockBackend: VaultBackend {
 
     func status() async throws -> VaultStatus {
         .init(version: "0.7.0", vaultPath: "~/.stash/vault.db", vaultExists: true, locked: locked,
-              touchIdAvailable: true, touchIdEnabled: true, needsUpgrade: false)
+              touchIdAvailable: touchIDAvailable, touchIdEnabled: touchIDEnabled, needsUpgrade: false)
     }
     func createVault(password: String) async throws {}
     func unlock(password: String) async throws { locked = false }
     func unlockWithTouchID() async throws {
+        touchIDRequests += 1
         if stayLocked { throw BackendError(code: -32004, message: "cancelled") }
         locked = false
     }
     func lock() async throws { locked = true }
-    func list() async throws -> VaultListing { VaultListing(items: items, groups: groups) }
+    func list() async throws -> VaultListing {
+        guard !locked else { throw BackendError(code: -32001, message: "stash is locked") }
+        return VaultListing(items: items, groups: groups)
+    }
     func createGroup(_ name: String) async throws -> VaultGroup {
         let group = VaultGroup(id: nextGroupID, name: name)
         nextGroupID += 1

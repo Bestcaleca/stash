@@ -70,37 +70,12 @@ struct QuickAccessView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 StashMark(size: 22)
-                TextField("Search stash", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.plex(19))
-                    .foregroundStyle(Color.ink)
-                    .focused($focused)
-                    .onSubmit {
-                        guard !isComposingText else { return }
-                        Task { await copyHighlighted() }
-                    }
-                    .onKeyPress(.return, phases: .down) { press in
-                        guard !isComposingText, press.modifiers.contains(.option),
-                              let item = results[safe: highlighted], item.hasOtp else { return .ignored }
-                        Task { if await model.copyOTP(for: item) { finish("2FA code") } }
-                        return .handled
-                    }
-                    .onKeyPress(.downArrow) {
-                        guard !isComposingText else { return .ignored }
-                        highlighted = min(highlighted + 1, max(results.count - 1, 0))
-                        return .handled
-                    }
-                    .onKeyPress(.upArrow) {
-                        guard !isComposingText else { return .ignored }
-                        highlighted = max(highlighted - 1, 0)
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        guard !isComposingText else { return .ignored }
-                        close()
-                        return .handled
-                    }
-                    .onChange(of: query) { highlighted = 0 }
+                if case .unlocked = model.screen {
+                    searchField
+                } else {
+                    Text("Unlock stash").font(.plex(19)).foregroundStyle(Color.ink)
+                    Spacer()
+                }
             }
             .padding(14)
 
@@ -140,26 +115,52 @@ struct QuickAccessView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
                 .background(Color.surfaceRaised)
-            } else {
+            } else if case .locked = model.screen {
                 Rectangle().fill(Color.line).frame(height: 1)
-                Button {
-                    Task { await model.unlockWithTouchID() }
-                } label: {
-                    Label("Unlock stash", systemImage: "touchid").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryButtonStyle(wide: true))
-                .padding(14)
+                UnlockForm()
+                    .padding(14)
+                    .onExitCommand(perform: close)
             }
         }
         .frame(width: 560)
         .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.line))
-        .onAppear {
-            query = ""
-            copied = nil
-            focused = true
-        }
+    }
+
+    private var searchField: some View {
+        TextField("Search stash", text: $query)
+            .textFieldStyle(.plain)
+            .font(.plex(19))
+            .foregroundStyle(Color.ink)
+            .focused($focused)
+            .onSubmit {
+                guard !isComposingText else { return }
+                Task { await copyHighlighted() }
+            }
+            .onKeyPress(.return, phases: .down) { press in
+                guard !isComposingText, press.modifiers.contains(.option),
+                      let item = results[safe: highlighted], item.hasOtp else { return .ignored }
+                Task { if await model.copyOTP(for: item) { finish("2FA code") } }
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                guard !isComposingText else { return .ignored }
+                highlighted = min(highlighted + 1, max(results.count - 1, 0))
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                guard !isComposingText else { return .ignored }
+                highlighted = max(highlighted - 1, 0)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard !isComposingText else { return .ignored }
+                close()
+                return .handled
+            }
+            .onChange(of: query) { highlighted = 0 }
+            .task { focused = true }
     }
 
     private func copyHighlighted() async {
@@ -226,8 +227,13 @@ final class QuickAccessController {
     func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        if case .unlocked = model.screen {
-            Task { await model.reload() }
+        let wasVisible = panel.isVisible
+        if !wasVisible {
+            // Start each session with a fresh search and an empty password field.
+            let controller = NSHostingController(rootView: QuickAccessView(close: { [weak self] in self?.hide() })
+                .environmentObject(model))
+            controller.sizingOptions = [.preferredContentSize]
+            panel.contentViewController = controller
         }
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
@@ -235,10 +241,14 @@ final class QuickAccessController {
         }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        if !wasVisible {
+            Task { await model.prepareForAccess() }
+        }
     }
 
     func hide() {
         panel?.orderOut(nil)
+        panel?.contentViewController = nil
     }
 
     private func makePanel() -> QuickAccessPanel {
@@ -252,11 +262,6 @@ final class QuickAccessController {
         panel.hasShadow = true
         panel.hidesOnDeactivate = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        // A hosting controller resizes the panel to fit its content.
-        let controller = NSHostingController(rootView: QuickAccessView(close: { [weak self] in self?.hide() })
-            .environmentObject(model))
-        controller.sizingOptions = [.preferredContentSize]
-        panel.contentViewController = controller
         return panel
     }
 }

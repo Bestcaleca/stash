@@ -215,6 +215,7 @@
 "Payment Card" = "Payment Card";
 "Payment Cards" = "Payment Cards";
 "Point the camera at the QR code from the site's 2FA setup." = "Point the camera at the QR code from the site's 2FA setup.";
+"Preferred unlock method" = "Preferred unlock method";
 "Private key" = "Private key";
 "Private key file" = "Private key file";
 "Private text, like recovery codes or a Wi-Fi password" = "Private text, like recovery codes or a Wi-Fi password";
@@ -292,6 +293,7 @@
 "This secret holds binary data. Use `stash get %@` in the terminal." = "This secret holds binary data. Use `stash get %@` in the terminal.";
 "This vault can only be changed on your Mac." = "This vault can only be changed on your Mac.";
 "This vault lives only on this iPhone. It isn't in iCloud or any backup, so a lost phone, or a lost password once Face ID stops working, means starting over." = "This vault lives only on this iPhone. It isn't in iCloud or any backup, so a lost phone, or a lost password once Face ID stops working, means starting over.";
+"Touch ID" = "Touch ID";
 "Touch ID isn't available on this Mac." = "Touch ID isn't available on this Mac.";
 "Touch ID unlock is on" = "Touch ID unlock is on";
 "Touch ID was cancelled" = "Touch ID was cancelled";
@@ -331,6 +333,7 @@
 "Version" = "Version";
 "Website" = "Website";
 "What do you want to save?" = "What do you want to save?";
+"When Touch ID is enabled and preferred, opening stash asks for your fingerprint. You can still use your master password." = "When Touch ID is enabled and preferred, opening stash asks for your fingerprint. You can still use your master password.";
 "Write the note." = "Write the note.";
 "YOUR NAME" = "YOUR NAME";
 "You'll need it whenever Face ID is off. Nobody can reset it for you." = "You'll need it whenever Face ID is off. Nobody can reset it for you.";
