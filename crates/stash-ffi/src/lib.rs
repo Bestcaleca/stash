@@ -268,12 +268,13 @@ pub unsafe extern "C" fn stash_update_item(
         }
         // SAFETY: the caller guarantees it's null or NUL-terminated.
         match unsafe { from_c(new_name) } {
-            Some(new_name) => {
-                v.vault
-                    .put(new_name, &item, false)
-                    .map_err(|e| e.to_string())?;
-                v.vault.remove(name).map_err(|e| e.to_string())
+            Some(new_name) if new_name == name => {
+                Err(stash_core::Error::AlreadyExists(name.to_owned()).to_string())
             }
+            Some(new_name) => v
+                .vault
+                .save_item(new_name, &item, Some(name), None)
+                .map_err(|e| e.to_string()),
             None if new_name.is_null() => v.vault.put(name, &item, true).map_err(|e| e.to_string()),
             None => Err("invalid arguments".to_owned()),
         }

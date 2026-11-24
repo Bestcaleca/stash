@@ -56,6 +56,14 @@ pub enum Error {
     AlreadyExists(String),
     #[error("invalid secret name `{0}`: {1}")]
     InvalidName(String, &'static str),
+    #[error("enter a group name of up to 128 characters without line breaks or controls")]
+    InvalidGroupName,
+    #[error("a group with this name already exists")]
+    GroupNameExists,
+    #[error("that group no longer exists")]
+    GroupNotFound,
+    #[error("the default group cannot be deleted")]
+    DefaultGroup,
     #[error("a vault already exists at {0}")]
     VaultExists(PathBuf),
     #[error("no vault at {0} (run `stash init` first)")]

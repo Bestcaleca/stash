@@ -5,6 +5,7 @@
 pub mod crypto;
 mod error;
 pub mod generate;
+mod group;
 pub mod import;
 pub mod item;
 mod name;
@@ -17,6 +18,7 @@ mod vault;
 
 pub use crypto::KdfParams;
 pub use error::Error;
+pub use group::{DEFAULT_GROUP_ID, GroupId, VaultGroup};
 pub use item::{Field, FieldKind, Item, Kind};
 pub use name::validate_name;
 pub use vault::Vault;

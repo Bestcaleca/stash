@@ -1,7 +1,7 @@
 //! The on-disk vault: a SQLite file holding password-wrapped keys and
 //! individually encrypted items.
 //!
-//! Layout (format version 3):
+//! Layout (format versions 3 and 4):
 //!
 //! - **Two random keys**, each wrapped with the Argon2id key-encryption key
 //!   (KEK) derived from the master password, bound to the header (version,
@@ -20,6 +20,11 @@
 //!   sensitive kinds, `blob` holds a *redacted* copy (labels, non-secret
 //!   values, "Visa •••• 4242") and `secret` the full item, sealed with the
 //!   sensitive key.
+//! - **Groups** (v4): an encrypted catalog in the header's metadata, mapping
+//!   item names to stable group IDs. The default group is implicit until the
+//!   first group change. The catalog uses its own main-key subkey and joins
+//!   the vault-wide MAC. A first group change upgrades v3 in one transaction;
+//!   the existing wrapped keys and item encodings stay valid.
 //! - **A vault-wide MAC** over every row (id and hashes of both blobs) and a
 //!   write counter, updated in the same transaction as every write and
 //!   checked on every open. Removing, adding, or rolling back individual
@@ -48,11 +53,14 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::crypto::{self, KdfParams, SALT_LEN, SecretKey};
+use crate::group::{GroupCatalog, GroupId, VaultGroup};
 use crate::item::{FieldValue, Item, Kind};
 use crate::reference::Reference;
 use crate::{Error, Result, validate_name};
 
-const FORMAT_VERSION: i64 = 3;
+const BASE_FORMAT_VERSION: i64 = 3;
+const GROUP_FORMAT_VERSION: i64 = 4;
+const GROUP_AAD: &[u8] = b"stash/v4/groups";
 const OLDEST_SUPPORTED_VERSION: i64 = 1;
 /// Marks the structured encoding (see the module docs).
 const STRUCTURED: [u8; 2] = [0xFF, 0xFF];
@@ -133,6 +141,10 @@ impl Keys {
         crypto::hmac(self.main.as_ref(), label)
     }
 
+    fn group_key(&self) -> SecretKey {
+        Zeroizing::new(crypto::hmac(self.main.as_ref(), b"stash/v4/group-key"))
+    }
+
     fn item_aad(&self, id: &[u8]) -> Vec<u8> {
         let mut aad = if self.legacy {
             b"stash/item/v1".to_vec()
@@ -183,6 +195,18 @@ pub struct Vault {
 /// A stored row: the item's `blob`, and for sensitive kinds its `secret`.
 type Row = (Vec<u8>, Option<Vec<u8>>);
 
+#[derive(Default)]
+struct ItemWrite<'a> {
+    overwrite: bool,
+    original_name: Option<&'a str>,
+    group_id: Option<GroupId>,
+}
+
+pub struct GroupedSummary {
+    pub summary: Summary,
+    pub group_id: GroupId,
+}
+
 /// What a master-password unlock found in the header.
 struct Unwrapped {
     main: SecretKey,
@@ -219,10 +243,10 @@ impl Vault {
             let sensitive = crypto::random_key()?;
             let tx = conn.transaction()?;
             write_header(&tx, password, params, &main, &sensitive)?;
-            let keys = Keys::new(main, FORMAT_VERSION);
+            let keys = Keys::new(main, BASE_FORMAT_VERSION);
             bump_mac(&tx, &keys)?;
             tx.commit()?;
-            let vault = Self::from_parts(conn, keys, Some(sensitive), path, FORMAT_VERSION);
+            let vault = Self::from_parts(conn, keys, Some(sensitive), path, BASE_FORMAT_VERSION);
             vault.publish_audit_key();
             Ok(vault)
         })();
@@ -240,7 +264,7 @@ impl Vault {
         let (mut conn, version) = connect_existing(path)?;
         let found = unwrap_header(&conn, version, password)?;
 
-        if version < FORMAT_VERSION {
+        if version < BASE_FORMAT_VERSION {
             let legacy = Keys::new(Zeroizing::new(*found.main), version);
             return match tolerate_unwritable(upgrade(&mut conn, path, &legacy, password)) {
                 // Another stash process upgraded it first: open the result.
@@ -250,7 +274,7 @@ impl Vault {
                 }
                 Ok(Some(Some((keys, sensitive, backup)))) => {
                     let mut vault =
-                        Self::from_parts(conn, keys, Some(sensitive), path, FORMAT_VERSION);
+                        Self::from_parts(conn, keys, Some(sensitive), path, BASE_FORMAT_VERSION);
                     vault.backup = Some(backup);
                     vault.publish_audit_key();
                     Ok(vault)
@@ -349,9 +373,9 @@ impl Vault {
         }
     }
 
-    /// Whether the vault is in the current format, so it can be changed.
+    /// Whether this vault supports writes without a legacy upgrade.
     pub fn is_current(&self) -> bool {
-        self.version >= FORMAT_VERSION
+        self.version >= BASE_FORMAT_VERSION
     }
 
     /// Why the vault can't be changed yet.
@@ -370,7 +394,7 @@ impl Vault {
         self.backup.as_deref()
     }
 
-    /// Whether `path` is a vault in the current format, checked without any
+    /// Whether `path` is a vault in a writable format, checked without any
     /// password. For rejecting other files before they replace a vault.
     pub fn check_file(path: &Path) -> Result<()> {
         let not_a_vault = || Error::NotAVault(path.to_owned());
@@ -385,7 +409,7 @@ impl Vault {
         harden(&conn).map_err(|_| not_a_vault())?;
         let version: i64 = meta(&conn, "format_version").map_err(|_| not_a_vault())?;
         let _: Vec<u8> = meta(&conn, "wrapped_key").map_err(|_| not_a_vault())?;
-        if version != FORMAT_VERSION {
+        if !(BASE_FORMAT_VERSION..=GROUP_FORMAT_VERSION).contains(&version) {
             return Err(Error::UnsupportedVersion(version));
         }
         Ok(())
@@ -527,7 +551,15 @@ impl Vault {
             return Err(self.upgrade_error());
         }
         let payload = encode_secret(name, value);
-        self.write(name, &payload, None, overwrite)
+        self.write(
+            name,
+            &payload,
+            None,
+            ItemWrite {
+                overwrite,
+                ..ItemWrite::default()
+            },
+        )
     }
 
     /// Store an item. A plain secret (one value, no notes) uses the secret
@@ -535,6 +567,40 @@ impl Vault {
     /// and SSH keys need the sensitive key ([`Error::SensitiveLocked`]
     /// otherwise). `updated` is set to now, and `created` too if it's 0.
     pub fn put(&mut self, name: &str, item: &Item, overwrite: bool) -> Result<()> {
+        self.put_item(
+            name,
+            item,
+            ItemWrite {
+                overwrite,
+                ..ItemWrite::default()
+            },
+        )
+    }
+
+    /// Create or edit an item, applying its name and group changes in the
+    /// same transaction. An omitted group keeps the item's existing group.
+    pub fn save_item(
+        &mut self,
+        name: &str,
+        item: &Item,
+        original_name: Option<&str>,
+        group_id: Option<GroupId>,
+    ) -> Result<()> {
+        if let Some(original) = original_name {
+            validate_name(original)?;
+        }
+        self.put_item(
+            name,
+            item,
+            ItemWrite {
+                overwrite: original_name == Some(name),
+                original_name,
+                group_id,
+            },
+        )
+    }
+
+    fn put_item(&mut self, name: &str, item: &Item, write: ItemWrite<'_>) -> Result<()> {
         validate_name(name)?;
         // Normalized and checked here, not just in each client, so any edit
         // is caught.
@@ -544,12 +610,12 @@ impl Vault {
         item.validate()?;
         let plain_secret =
             item.kind == Kind::Secret && item.fields.len() == 1 && item.notes.is_empty();
-        if plain_secret {
-            let value = item.primary().unwrap_or("");
-            return self.add(name, value.as_bytes(), overwrite);
-        }
         if !self.is_current() {
             return Err(self.upgrade_error());
+        }
+        if plain_secret {
+            let value = item.primary().unwrap_or("");
+            return self.write(name, &encode_secret(name, value.as_bytes()), None, write);
         }
         let now = unix_now();
         item.updated = now;
@@ -562,10 +628,10 @@ impl Vault {
             }
             let public = encode_with(&REDACTED, name, &item.redacted())?;
             let secret = encode_with(&STRUCTURED, name, &item)?;
-            self.write(name, &public, Some(&secret), overwrite)
+            self.write(name, &public, Some(&secret), write)
         } else {
             let payload = encode_with(&STRUCTURED, name, &item)?;
-            self.write(name, &payload, None, overwrite)
+            self.write(name, &payload, None, write)
         }
     }
 
@@ -574,9 +640,11 @@ impl Vault {
         name: &str,
         payload: &[u8],
         secret: Option<&[u8]>,
-        overwrite: bool,
+        write: ItemWrite<'_>,
     ) -> Result<()> {
         let id = self.item_id(name);
+        let original = write.original_name.filter(|old| *old != name);
+        let original_id = original.map(|old| self.item_id(old));
         let blob = crypto::seal(&self.keys.item, &self.keys.item_aad(&id), payload)?;
         let sealed_secret = match secret {
             Some(secret) => {
@@ -586,22 +654,37 @@ impl Vault {
             None => None,
         };
         let tx = begin_write(&mut self.conn, &self.keys, self.sensitive.as_ref())?;
-        let exists = tx
-            .query_row(
-                "SELECT 1 FROM items WHERE id = ?1",
-                params![id.as_slice()],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        if exists && !overwrite {
+        let exists = row_exists(&tx, &id)?;
+        if exists && !write.overwrite {
             return Err(Error::AlreadyExists(name.to_owned()));
+        }
+        if write.original_name == Some(name) && !exists {
+            return Err(Error::NotFound(name.to_owned()));
         }
         tx.execute(
             "INSERT INTO items (id, blob, secret) VALUES (?1, ?2, ?3)
              ON CONFLICT (id) DO UPDATE SET blob = excluded.blob, secret = excluded.secret",
             params![id.as_slice(), blob, sealed_secret],
         )?;
+        if let Some(original_id) = original_id {
+            let deleted =
+                tx.execute("DELETE FROM items WHERE id = ?1", [original_id.as_slice()])?;
+            if deleted == 0 {
+                return Err(Error::NotFound(
+                    original.expect("has an original ID").to_owned(),
+                ));
+            }
+        }
+        if original.is_some() || write.group_id.is_some() {
+            let mut catalog = read_group_catalog(&tx, &self.keys)?;
+            let group_id = write
+                .group_id
+                .unwrap_or_else(|| catalog.group_id(original.unwrap_or(name)));
+            let removed = original.is_some_and(|old| catalog.forget(old));
+            if catalog.assign(name, group_id)? || removed {
+                write_group_catalog(&tx, &self.keys, &catalog)?;
+            }
+        }
         bump_mac(&tx, &self.keys)?;
         tx.commit()?;
         Ok(())
@@ -745,9 +828,76 @@ impl Vault {
         if deleted == 0 {
             return Err(Error::NotFound(name.to_owned()));
         }
+        let mut catalog = read_group_catalog(&tx, &self.keys)?;
+        if catalog.forget(name) {
+            write_group_catalog(&tx, &self.keys, &catalog)?;
+        }
         bump_mac(&tx, &self.keys)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// List groups and their items from the same read snapshot.
+    pub fn grouped_summaries(&self) -> Result<(Vec<VaultGroup>, Vec<GroupedSummary>)> {
+        let snapshot = self.conn.unchecked_transaction()?;
+        if !self.keys.legacy {
+            verify_mac(&snapshot, &self.keys)?;
+        }
+        let catalog = read_group_catalog(&snapshot, &self.keys)?;
+        let items = self
+            .summaries()?
+            .into_iter()
+            .map(|summary| GroupedSummary {
+                group_id: catalog.group_id(&summary.name),
+                summary,
+            })
+            .collect();
+        snapshot.commit()?;
+        Ok((catalog.groups, items))
+    }
+
+    pub fn create_group(&mut self, name: &str) -> Result<VaultGroup> {
+        self.update_groups(|_, catalog| Ok((catalog.create(name)?, true)))
+    }
+
+    pub fn rename_group(&mut self, id: GroupId, name: &str) -> Result<()> {
+        self.update_groups(|_, catalog| Ok((catalog.rename(id, name)?, true)))
+    }
+
+    /// Remove a custom group, returning the number of items that moved to
+    /// the default group. The item contents are never read or rewritten.
+    pub fn delete_group(&mut self, id: GroupId) -> Result<usize> {
+        self.update_groups(|_, catalog| Ok((catalog.delete(id)?, true)))
+    }
+
+    /// Organize an item using just the main key, even for sensitive kinds.
+    pub fn move_item(&mut self, name: &str, id: GroupId) -> Result<()> {
+        validate_name(name)?;
+        let item_id = self.item_id(name);
+        self.update_groups(|tx, catalog| {
+            if !row_exists(tx, &item_id)? {
+                return Err(Error::NotFound(name.to_owned()));
+            }
+            Ok(((), catalog.assign(name, id)?))
+        })
+    }
+
+    fn update_groups<T>(
+        &mut self,
+        update: impl FnOnce(&Connection, &mut GroupCatalog) -> Result<(T, bool)>,
+    ) -> Result<T> {
+        if !self.is_current() {
+            return Err(self.upgrade_error());
+        }
+        let tx = begin_write(&mut self.conn, &self.keys, None)?;
+        let mut catalog = read_group_catalog(&tx, &self.keys)?;
+        let (value, changed) = update(&tx, &mut catalog)?;
+        if changed {
+            write_group_catalog(&tx, &self.keys, &catalog)?;
+            bump_mac(&tx, &self.keys)?;
+        }
+        tx.commit()?;
+        Ok(value)
     }
 
     /// All item names, sorted. Values are never returned.
@@ -812,7 +962,7 @@ impl Vault {
         self.unlock_sensitive(password)?;
         let main = crypto::random_key()?;
         let sensitive = crypto::random_key()?;
-        let keys = Keys::new(Zeroizing::new(*main), FORMAT_VERSION);
+        let keys = Keys::new(Zeroizing::new(*main), BASE_FORMAT_VERSION);
         let wrap_with = new_password.unwrap_or(password);
 
         // Everything under one write lock, so nothing another process adds
@@ -826,6 +976,9 @@ impl Vault {
             verify_mac(&self.conn, &self.keys)?;
             copy_private(&self.path, &backup)?;
             let items = self.all_full()?;
+            let groups = (meta::<i64>(&self.conn, "format_version")? == GROUP_FORMAT_VERSION)
+                .then(|| read_group_catalog(&self.conn, &self.keys))
+                .transpose()?;
             self.conn.execute("DELETE FROM items", [])?;
             for (name, stored) in &items {
                 insert_row(&self.conn, &keys, &sensitive, name, stored)?;
@@ -837,6 +990,9 @@ impl Vault {
                 &main,
                 &sensitive,
             )?;
+            if let Some(groups) = groups {
+                write_group_catalog(&self.conn, &keys, &groups)?;
+            }
             bump_mac(&self.conn, &keys)?;
             self.conn.execute_batch("COMMIT")?;
             Ok(())
@@ -853,7 +1009,8 @@ impl Vault {
         let check = (|| {
             let mut fresh = Vault::open_with_key(&self.path, &self.keys.main)?;
             fresh.unlock_sensitive_with_key(self.sensitive.as_ref().expect("just set"))?;
-            fresh.all_full().map(|_| ())
+            fresh.all_full()?;
+            read_group_catalog(&fresh.conn, &fresh.keys).map(|_| ())
         })();
         match check {
             Ok(()) => {
@@ -905,16 +1062,19 @@ fn unwrap_header(conn: &Connection, version: i64, password: &[u8]) -> Result<Unw
     let salt: Vec<u8> = meta(conn, "kdf_salt")?;
     let wrapped: Vec<u8> = meta(conn, "wrapped_key")?;
     let kek = crypto::derive_kek(password, &salt, params)?;
+    // Group metadata changes the vault format and its MAC, while keeping
+    // the v3 key wrapping so a main-key unlock can create groups.
+    let key_version = version.min(BASE_FORMAT_VERSION);
     let main = unwrap_key(
         &kek,
-        &header_aad(b"stash/vault-key/v1", version, params, &salt),
+        &header_aad(b"stash/vault-key/v1", key_version, params, &salt),
         &wrapped,
     )?;
     let sensitive = if version >= 3 {
         let wrapped: Vec<u8> = meta(conn, "wrapped_sensitive_key")?;
         Some(unwrap_key(
             &kek,
-            &header_aad(b"stash/v3/sensitive-key", version, params, &salt),
+            &header_aad(b"stash/v3/sensitive-key", key_version, params, &salt),
             &wrapped,
         )?)
     } else {
@@ -938,7 +1098,7 @@ fn unwrap_key(kek: &SecretKey, aad: &[u8], wrapped: &[u8]) -> Result<SecretKey> 
     Ok(key)
 }
 
-/// Write a v3 header: fresh salt, both keys wrapped with the KEK from
+/// Write v3-style wrapped keys with a fresh salt and the KEK from
 /// `password` and `params`, and their check values.
 fn write_header(
     tx: &Connection,
@@ -951,17 +1111,27 @@ fn write_header(
     let kek = crypto::derive_kek(password, &salt, params)?;
     let wrapped_main = crypto::seal(
         &kek,
-        &header_aad(b"stash/vault-key/v1", FORMAT_VERSION, params, &salt),
+        &header_aad(b"stash/vault-key/v1", BASE_FORMAT_VERSION, params, &salt),
         main.as_ref(),
     )?;
     let wrapped_sensitive = crypto::seal(
         &kek,
-        &header_aad(b"stash/v3/sensitive-key", FORMAT_VERSION, params, &salt),
+        &header_aad(
+            b"stash/v3/sensitive-key",
+            BASE_FORMAT_VERSION,
+            params,
+            &salt,
+        ),
         sensitive.as_ref(),
     )?;
-    let keys = Keys::new(Zeroizing::new(**main), FORMAT_VERSION);
+    let keys = Keys::new(Zeroizing::new(**main), BASE_FORMAT_VERSION);
     let mut set = tx.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)")?;
-    set.execute(params!["format_version", FORMAT_VERSION])?;
+    // Re-wrapping keys must keep the version of a grouped vault.
+    tx.execute(
+        "INSERT INTO meta (key, value) VALUES ('format_version', ?1)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE value < excluded.value",
+        [BASE_FORMAT_VERSION],
+    )?;
     set.execute(params!["kdf_m_cost_kib", params.m_cost_kib])?;
     set.execute(params!["kdf_t_cost", params.t_cost])?;
     set.execute(params!["kdf_p_cost", params.p_cost])?;
@@ -1026,7 +1196,7 @@ fn upgrade(
     // old vault at once must not both upgrade it.
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let version: i64 = meta(&tx, "format_version")?;
-    if version >= FORMAT_VERSION {
+    if version >= BASE_FORMAT_VERSION {
         // Someone else just did it.
         return Ok(None);
     }
@@ -1053,7 +1223,7 @@ fn upgrade(
     let result = (|| {
         let main = crypto::random_key()?;
         let sensitive = crypto::random_key()?;
-        let keys = Keys::new(Zeroizing::new(*main), FORMAT_VERSION);
+        let keys = Keys::new(Zeroizing::new(*main), BASE_FORMAT_VERSION);
         tx.execute_batch(
             "DROP TABLE items;
              CREATE TABLE items (id BLOB PRIMARY KEY, blob BLOB NOT NULL, secret BLOB) STRICT;",
@@ -1131,12 +1301,57 @@ fn keys_changed(e: Error) -> Error {
     }
 }
 
-/// The vault-wide MAC: the write counter and every row's id and the hashes
-/// of its two blobs, in id order.
+fn row_exists(conn: &Connection, id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT 1 FROM items WHERE id = ?1", [id], |_| Ok(()))
+        .optional()?
+        .is_some())
+}
+
+fn read_group_catalog(conn: &Connection, keys: &Keys) -> Result<GroupCatalog> {
+    if meta::<i64>(conn, "format_version")? < GROUP_FORMAT_VERSION {
+        return Ok(GroupCatalog::default());
+    }
+    let blob = group_blob(conn)?;
+    let plaintext = crypto::open(&keys.group_key(), GROUP_AAD, &blob)?;
+    serde_json::from_slice(&plaintext).map_err(|_| Error::Corrupt("invalid group catalog".into()))
+}
+
+fn group_blob(conn: &Connection) -> Result<Vec<u8>> {
+    conn.query_row("SELECT value FROM meta WHERE key = 'groups'", [], |row| {
+        row.get(0)
+    })
+    .optional()?
+    .ok_or(Error::Tampered)
+}
+
+fn write_group_catalog(conn: &Connection, keys: &Keys, catalog: &GroupCatalog) -> Result<()> {
+    let plaintext = Zeroizing::new(
+        serde_json::to_vec(catalog)
+            .map_err(|_| Error::Corrupt("could not encode group catalog".into()))?,
+    );
+    let blob = crypto::seal(&keys.group_key(), GROUP_AAD, &plaintext)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('groups', ?1)",
+        [blob],
+    )?;
+    conn.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'format_version'",
+        [GROUP_FORMAT_VERSION],
+    )?;
+    Ok(())
+}
+
+/// The vault-wide MAC: version, counter, the optional group catalog, and
+/// every row's id and blob hashes, in id order.
 fn compute_mac(conn: &Connection, keys: &Keys, counter: i64) -> Result<[u8; 32]> {
     let mut data = b"stash/v3/vault-mac".to_vec();
-    data.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    let version = meta::<i64>(conn, "format_version")?;
+    data.extend_from_slice(&version.to_le_bytes());
     data.extend_from_slice(&counter.to_le_bytes());
+    if version == GROUP_FORMAT_VERSION {
+        data.extend_from_slice(&Sha256::digest(group_blob(conn)?));
+    }
     let mut stmt = conn.prepare("SELECT id, blob, secret FROM items ORDER BY id")?;
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
@@ -1306,7 +1521,7 @@ fn connect_existing(path: &Path) -> Result<(Connection, i64)> {
     }
     let conn = connect(path)?;
     let version: i64 = meta(&conn, "format_version")?;
-    if !(OLDEST_SUPPORTED_VERSION..=FORMAT_VERSION).contains(&version) {
+    if !(OLDEST_SUPPORTED_VERSION..=GROUP_FORMAT_VERSION).contains(&version) {
         return Err(Error::UnsupportedVersion(version));
     }
     Ok((conn, version))
@@ -1468,6 +1683,185 @@ mod tests {
 
     fn value(vault: &Vault, name: &str) -> Vec<u8> {
         vault.get(name).unwrap().expose_secret().to_vec()
+    }
+
+    fn assignments(vault: &Vault) -> Vec<(String, GroupId)> {
+        vault
+            .grouped_summaries()
+            .unwrap()
+            .1
+            .into_iter()
+            .map(|item| (item.summary.name, item.group_id))
+            .collect()
+    }
+
+    #[test]
+    fn groups_preserve_items_across_sessions_renames_and_deletion() {
+        let (_dir, path, mut vault) = new_vault();
+        vault.add("old", b"original", false).unwrap();
+        vault.put("cards/visa", &visa(), false).unwrap();
+        let card_id = vault.item_id("cards/visa");
+        let card_before = vault.row(&card_id).unwrap();
+        let main = *vault.key();
+        let mut session = Vault::open_with_key(&path, &main).unwrap();
+        assert_eq!(session.grouped_summaries().unwrap().0.len(), 1);
+        assert!(
+            assignments(&session)
+                .iter()
+                .all(|(_, id)| *id == crate::DEFAULT_GROUP_ID)
+        );
+        session.move_item("old", crate::DEFAULT_GROUP_ID).unwrap();
+        assert_eq!(
+            meta::<i64>(&session.conn, "format_version").unwrap(),
+            BASE_FORMAT_VERSION
+        );
+
+        assert!(matches!(
+            session.create_group("个人"),
+            Err(Error::GroupNameExists)
+        ));
+        assert!(matches!(
+            session.create_group("  "),
+            Err(Error::InvalidGroupName)
+        ));
+        let company = session.create_group(" 公司 ").unwrap();
+        assert_eq!(company.name.as_deref(), Some("公司"));
+        let dev = session.create_group("Development").unwrap();
+        assert!(matches!(
+            session.create_group(" DEVELOPMENT "),
+            Err(Error::GroupNameExists)
+        ));
+        session.rename_group(dev.id, "开发").unwrap();
+        session.move_item("cards/visa", company.id).unwrap();
+        assert_eq!(
+            session.row(&card_id).unwrap(),
+            card_before,
+            "moving needs only the main key"
+        );
+        assert!(matches!(
+            session.get("cards/visa"),
+            Err(Error::SensitiveLocked(_))
+        ));
+        session.move_item("old", company.id).unwrap();
+
+        // This handle was unlocked before the format change.
+        vault
+            .save_item("renamed", &Item::secret("updated"), Some("old"), None)
+            .unwrap();
+        vault
+            .save_item("new", &Item::note("dev note"), None, Some(dev.id))
+            .unwrap();
+        assert_eq!(
+            assignments(&session),
+            [
+                ("cards/visa".into(), company.id),
+                ("new".into(), dev.id),
+                ("renamed".into(), company.id)
+            ]
+        );
+
+        let mut reopened = Vault::open(&path, b"correct horse").unwrap();
+        assert_eq!(value(&reopened, "renamed"), b"updated");
+        assert!(!reopened.contains("old").unwrap());
+        reopened
+            .rename_group(crate::DEFAULT_GROUP_ID, "私人")
+            .unwrap();
+        assert!(matches!(
+            reopened.delete_group(crate::DEFAULT_GROUP_ID),
+            Err(Error::DefaultGroup)
+        ));
+        assert_eq!(reopened.delete_group(company.id).unwrap(), 2);
+        assert_eq!(
+            assignments(&session),
+            [
+                ("cards/visa".into(), crate::DEFAULT_GROUP_ID),
+                ("new".into(), dev.id),
+                ("renamed".into(), crate::DEFAULT_GROUP_ID),
+            ]
+        );
+        assert_eq!(session.row(&card_id).unwrap(), card_before);
+        assert!(reopened.create_group("公司").unwrap().id > dev.id);
+
+        reopened.remove("new").unwrap();
+        reopened.add("new", b"fresh", false).unwrap();
+        assert!(assignments(&session).contains(&("new".into(), crate::DEFAULT_GROUP_ID)));
+    }
+
+    #[test]
+    fn an_invalid_group_does_not_partially_save_or_rename() {
+        let (_dir, _, mut vault) = new_vault();
+        vault.add("old", b"original", false).unwrap();
+        let company = vault.create_group("Company").unwrap();
+        vault.move_item("old", company.id).unwrap();
+        let before: i64 = meta(&vault.conn, "write_counter").unwrap();
+        assert!(matches!(
+            vault.save_item("new", &Item::secret("updated"), Some("old"), Some(u64::MAX)),
+            Err(Error::GroupNotFound)
+        ));
+        assert!(!vault.contains("new").unwrap());
+        assert_eq!(value(&vault, "old"), b"original");
+        assert_eq!(assignments(&vault), [("old".into(), company.id)]);
+        assert_eq!(meta::<i64>(&vault.conn, "write_counter").unwrap(), before);
+    }
+
+    #[test]
+    fn grouped_vaults_rekey_and_authenticate_the_catalog() {
+        let (_dir, path, mut vault) = new_vault();
+        let company = vault.create_group("研发保密").unwrap();
+        vault
+            .save_item(
+                "work/token",
+                &Item::secret("sample"),
+                None,
+                Some(company.id),
+            )
+            .unwrap();
+        let blob = group_blob(&vault.conn).unwrap();
+        assert!(
+            !blob
+                .windows("研发保密".len())
+                .any(|bytes| bytes == "研发保密".as_bytes())
+        );
+        let old_main = *vault.key();
+        vault
+            .rekey(b"correct horse", Some(b"new test password"))
+            .unwrap();
+        assert_ne!(group_blob(&vault.conn).unwrap(), blob);
+        assert!(matches!(
+            Vault::open_with_key(&path, &old_main),
+            Err(Error::WrongKey)
+        ));
+        assert_eq!(
+            meta::<i64>(&vault.conn, "format_version").unwrap(),
+            GROUP_FORMAT_VERSION
+        );
+        let reopened = Vault::open(&path, b"new test password").unwrap();
+        assert_eq!(assignments(&reopened), [("work/token".into(), company.id)]);
+        assert_eq!(reopened.grouped_summaries().unwrap().0[1], company);
+        assert_eq!(value(&reopened, "work/token"), b"sample");
+
+        vault
+            .conn
+            .execute("DELETE FROM meta WHERE key = 'groups'", [])
+            .unwrap();
+        assert!(matches!(
+            Vault::open_with_key(&path, vault.key()),
+            Err(Error::Tampered)
+        ));
+        assert!(matches!(reopened.grouped_summaries(), Err(Error::Tampered)));
+        // The format is also authenticated, so a damaged catalog can't be
+        // made to look like an older vault that never had groups.
+        vault
+            .conn
+            .execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'format_version'",
+                [BASE_FORMAT_VERSION],
+            )
+            .unwrap();
+        assert!(matches!(
+            Vault::open_with_key(&path, vault.key()),
+            Err(Error::Tampered)
+        ));
     }
 
     #[test]
@@ -1806,15 +2200,19 @@ mod tests {
 
     #[test]
     fn rejects_vaults_from_the_future() {
+        const FUTURE: i64 = GROUP_FORMAT_VERSION + 1;
         let (_dir, path, vault) = new_vault();
         vault
             .conn
-            .execute("UPDATE meta SET value = 4 WHERE key = 'format_version'", [])
+            .execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'format_version'",
+                [FUTURE],
+            )
             .unwrap();
         drop(vault);
         assert!(matches!(
             Vault::open(&path, b"correct horse"),
-            Err(Error::UnsupportedVersion(4))
+            Err(Error::UnsupportedVersion(FUTURE))
         ));
     }
 
@@ -2247,7 +2645,7 @@ mod tests {
                 Err(Error::WrongKey)
             ));
             let session = Vault::open_with_key(&path, &main).unwrap();
-            assert_eq!(session.version, FORMAT_VERSION);
+            assert_eq!(session.version, BASE_FORMAT_VERSION);
             if version >= 2 {
                 assert_eq!(
                     session
