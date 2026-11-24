@@ -121,6 +121,7 @@
     if (!menu.hidden && !e.composedPath().includes(host)) closeMenu();
   }, true);
   document.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "Escape" && !menu.hidden) closeMenu();
   }, true);
 
@@ -181,6 +182,7 @@
     if (form || document.querySelector("input[type=password]")) captureFrom(form, false);
   }, true);
   document.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     // Enter submits a form the usual way (and fires `submit`, above);
     // here it only stands in for script-driven sign-ins.
     if (e.key === "Enter" && e.isTrusted && e.target instanceof HTMLInputElement) captureFrom(e.target.form, false);

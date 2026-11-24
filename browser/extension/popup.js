@@ -186,6 +186,8 @@ document.getElementById("settings").addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event) => {
+  // WebKit can finish composition before delivering the confirming keydown.
+  if (event.isComposing || event.keyCode === 229) return;
   if (event.key === "Escape" && embedded) return close();
   if (event.key === "ArrowDown") select(selected + 1);
   else if (event.key === "ArrowUp") select(selected - 1);
