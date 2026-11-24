@@ -503,7 +503,7 @@ struct ItemEditorView: View {
             if sshFile == nil { return String(localized: "Choose the private key file to import.") }
             if sshNeedsPassphrase && sshPassphrase.isEmpty { return String(localized: "Enter the key file's passphrase.") }
         }
-        if isNew && kind != .note && kind != .ssh && secret.isEmpty {
+        if isNew && (kind == .login || kind == .secret) && secret.isEmpty {
             return kind == .login ? String(localized: "Enter or generate a password.") : String(localized: "Enter the secret's value.")
         }
         if kind == .note && notes.isEmpty && !(hadNotes && !notesLoaded) { return String(localized: "Write the note.") }
